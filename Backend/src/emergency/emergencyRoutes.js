@@ -4,13 +4,13 @@ import express from "express";
 
 import {
   createEmergency,
+  processEmergencyCall,
   getEmergency,
   cancelEmergency,
 } from "./emergencyController.js";
 
 
-const router =
-  express.Router();
+const router = express.Router();
 
 
 // ==================================================
@@ -20,6 +20,39 @@ const router =
 router.post(
   "/",
   createEmergency
+);
+
+
+// ==================================================
+// PROCESS EMERGENCY CALL WITH GROQ AI
+// ==================================================
+//
+// multipart/form-data
+//
+// audio       -> File
+// callerId    -> Text
+// driverId    -> Text
+// callerNode  -> Text
+//
+// Flow:
+//
+// Audio
+//   ↓
+// Groq Whisper
+//   ↓
+// Transcript
+//   ↓
+// Groq Emergency Analysis
+//   ↓
+// Genuine / Non-Genuine
+//   ↓
+// Emergency Session
+//
+// ==================================================
+
+router.post(
+  "/process-call",
+  ...processEmergencyCall
 );
 
 
