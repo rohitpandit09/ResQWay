@@ -3,7 +3,13 @@ import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
 
+import emergencyRoutes from "./src/emergency/emergencyRoutes.js";
+import {registerSimulationSocket,} from "./src/sockets/simulationSocket.js";
+
 const app = express();
+
+
+
 
 const server = http.createServer(app);
 
@@ -27,6 +33,9 @@ app.use(
   express.json()
 );
 
+app.use("/api/emergencies",emergencyRoutes);
+
+
 app.get(
   "/api/health",
   (req, res) => {
@@ -38,27 +47,9 @@ app.get(
   }
 );
 
-io.on(
-  "connection",
-  (socket) => {
-    console.log(
-      "Client connected:",
-      socket.id
-    );
+registerSimulationSocket(io);
 
-    socket.on(
-      "disconnect",
-      () => {
-        console.log(
-          "Client disconnected:",
-          socket.id
-        );
-      }
-    );
-  }
-);
-
-const PORT = 5000;
+const PORT = 3000;
 
 server.listen(
   PORT,
