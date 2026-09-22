@@ -11,6 +11,10 @@ import {
   buildTelemetry,
 } from "./telemetryEngine.js";
 
+import {
+  buildSimulationSnapshot,
+} from "./simulationSnapshot.js";
+
 
 // ==================================================
 // CONFIGURATION
@@ -18,7 +22,7 @@ import {
 
 const TICK_INTERVAL_MS = 100;
 
-// Send telemetry every 250ms
+// Send telemetry/snapshot every 250ms
 const TELEMETRY_INTERVAL_MS = 250;
 
 
@@ -56,9 +60,17 @@ export function startSimulation(
   }
 
 
+  // -----------------------------------------------
+  // Create simulation
+  // -----------------------------------------------
+
   const simulation =
     createSimulation();
 
+
+  // -----------------------------------------------
+  // Simulation metadata
+  // -----------------------------------------------
 
   const simulationData = {
     simulation,
@@ -76,11 +88,19 @@ export function startSimulation(
   };
 
 
+  // -----------------------------------------------
+  // Store simulation
+  // -----------------------------------------------
+
   activeSimulations.set(
     emergencyId,
     simulationData
   );
 
+
+  // -----------------------------------------------
+  // Start simulation loop
+  // -----------------------------------------------
 
   simulationData.timer =
     setInterval(() => {
@@ -95,7 +115,10 @@ export function startSimulation(
   );
 
 
+  // -----------------------------------------------
   // Send initial state immediately
+  // -----------------------------------------------
+
   emitSimulationState(
     emergencyId,
     simulation
@@ -124,14 +147,19 @@ function updateSimulationTick(
   }
 
 
+  // -----------------------------------------------
+  // Calculate real elapsed time
+  // -----------------------------------------------
+
   const now =
     Date.now();
 
 
   const deltaSeconds =
-    (now -
-      simulationData.lastTickAt) /
-    1000;
+    (
+      now -
+      simulationData.lastTickAt
+    ) / 1000;
 
 
   simulationData.lastTickAt =
@@ -150,7 +178,7 @@ function updateSimulationTick(
 
 
   // -----------------------------------------------
-  // TELEMETRY BROADCAST TIMER
+  // TELEMETRY / SNAPSHOT BROADCAST
   // -----------------------------------------------
 
   if (
@@ -176,7 +204,8 @@ function updateSimulationTick(
   if (
     simulationData.simulation.completed
   ) {
-    // Make sure final state is sent
+
+    // Send final state
     emitSimulationState(
       emergencyId,
       simulationData.simulation
@@ -198,16 +227,46 @@ function updateSimulationTick(
 // ==================================================
 // EMIT SIMULATION STATE
 // ==================================================
+//
+// This creates BOTH:
+//
+// 1. telemetry
+// 2. complete simulation snapshot
+//
+// and sends them through simulationEvents.
+//
+// Socket.IO listens to this event and broadcasts
+// it to the emergency room.
+// ==================================================
 
 function emitSimulationState(
   emergencyId,
   simulation
 ) {
+  // -----------------------------------------------
+  // Build telemetry
+  // -----------------------------------------------
+
   const telemetry =
     buildTelemetry(
       simulation
     );
 
+
+  // -----------------------------------------------
+  // Build complete simulation snapshot
+  // -----------------------------------------------
+
+  const snapshot =
+    buildSimulationSnapshot(
+      emergencyId,
+      simulation
+    );
+
+
+  // -----------------------------------------------
+  // Emit event
+  // -----------------------------------------------
 
   simulationEvents.emit(
     "simulation:state",
@@ -215,6 +274,8 @@ function emitSimulationState(
       emergencyId,
 
       telemetry,
+
+      snapshot,
     }
   );
 }
@@ -294,6 +355,10 @@ export function stopSimulation(
   }
 
 
+  // -----------------------------------------------
+  // Stop interval
+  // -----------------------------------------------
+
   if (
     simulationData.timer
   ) {
@@ -302,6 +367,10 @@ export function stopSimulation(
     );
   }
 
+
+  // -----------------------------------------------
+  // Remove simulation
+  // -----------------------------------------------
 
   activeSimulations.delete(
     emergencyId
@@ -318,7 +387,7 @@ export function stopSimulation(
 
 
 // ==================================================
-// ACTIVE SIMULATIONS
+// GET ACTIVE SIMULATIONS
 // ==================================================
 
 export function getActiveSimulations() {

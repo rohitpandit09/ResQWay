@@ -9,6 +9,10 @@ import {
   buildTelemetry,
 } from "../simulation/telemetryEngine.js";
 
+import {
+  buildSimulationSnapshot,
+} from "../simulation/simulationSnapshot.js";
+
 
 // ==================================================
 // ROOM NAME
@@ -31,21 +35,33 @@ export function registerSimulationSocket(io) {
 
   simulationEvents.on(
     "simulation:state",
-    ({ emergencyId, telemetry }) => {
+    ({
+      emergencyId,
+      telemetry,
+      snapshot,
+    }) => {
 
       const room =
         getEmergencyRoom(emergencyId);
 
+
       console.log(
-        `[SOCKET] Broadcasting telemetry → ${room}`
+        `[SOCKET] Broadcasting simulation state → ${room}`
       );
+
 
       io
         .to(room)
-        .emit("simulation:state", {
-          emergencyId,
-          telemetry,
-        });
+        .emit(
+          "simulation:state",
+          {
+            emergencyId,
+
+            telemetry,
+
+            snapshot,
+          }
+        );
     }
   );
 
@@ -67,13 +83,19 @@ export function registerSimulationSocket(io) {
 
     socket.on(
       "emergency:join",
-      ({ emergencyId, role = "unknown" } = {}) => {
+      ({
+        emergencyId,
+        role = "unknown",
+      } = {}) => {
 
         console.log(
           `[SOCKET] Join request received:`,
           {
-            socketId: socket.id,
+            socketId:
+              socket.id,
+
             emergencyId,
+
             role,
           }
         );
@@ -89,10 +111,15 @@ export function registerSimulationSocket(io) {
             `[SOCKET] Join rejected: missing emergencyId`
           );
 
-          socket.emit("emergency:error", {
-            message:
-              "emergencyId is required",
-          });
+
+          socket.emit(
+            "emergency:error",
+            {
+              message:
+                "emergencyId is required",
+            }
+          );
+
 
           return;
         }
@@ -103,7 +130,9 @@ export function registerSimulationSocket(io) {
         // ---------------------------------------
 
         const room =
-          getEmergencyRoom(emergencyId);
+          getEmergencyRoom(
+            emergencyId
+          );
 
 
         // ---------------------------------------
@@ -126,18 +155,22 @@ export function registerSimulationSocket(io) {
           "emergency:joined",
           {
             emergencyId,
+
             role,
+
             room,
           }
         );
 
 
         // ---------------------------------------
-        // Send current simulation state
+        // Get current simulation
         // ---------------------------------------
 
         const simulation =
-          getSimulation(emergencyId);
+          getSimulation(
+            emergencyId
+          );
 
 
         if (!simulation) {
@@ -145,6 +178,7 @@ export function registerSimulationSocket(io) {
           console.log(
             `[SOCKET] No active simulation found for ${emergencyId}`
           );
+
 
           socket.emit(
             "emergency:error",
@@ -154,25 +188,50 @@ export function registerSimulationSocket(io) {
             }
           );
 
+
           return;
         }
 
 
-        const telemetry =
-          buildTelemetry(simulation);
+        // ---------------------------------------
+        // Build current telemetry
+        // ---------------------------------------
 
+        const telemetry =
+          buildTelemetry(
+            simulation
+          );
+
+
+        // ---------------------------------------
+        // Build complete simulation snapshot
+        // ---------------------------------------
+
+        const snapshot =
+          buildSimulationSnapshot(
+            emergencyId,
+            simulation
+          );
+
+
+        // ---------------------------------------
+        // Send current state immediately
+        // ---------------------------------------
 
         socket.emit(
           "simulation:state",
           {
             emergencyId,
+
             telemetry,
+
+            snapshot,
           }
         );
 
 
         console.log(
-          `[SOCKET] Initial telemetry sent → ${socket.id}`
+          `[SOCKET] Initial simulation snapshot sent → ${socket.id}`
         );
       }
     );
@@ -184,7 +243,9 @@ export function registerSimulationSocket(io) {
 
     socket.on(
       "emergency:leave",
-      ({ emergencyId } = {}) => {
+      ({
+        emergencyId,
+      } = {}) => {
 
         if (!emergencyId) {
           return;
@@ -192,7 +253,9 @@ export function registerSimulationSocket(io) {
 
 
         const room =
-          getEmergencyRoom(emergencyId);
+          getEmergencyRoom(
+            emergencyId
+          );
 
 
         socket.leave(room);
@@ -209,15 +272,19 @@ export function registerSimulationSocket(io) {
     // DISCONNECT
     // ==========================================
 
-    socket.on("disconnect", (reason) => {
+    socket.on(
+      "disconnect",
+      (reason) => {
 
-      console.log(
-        `[SOCKET] Disconnected: ${socket.id}`
-      );
+        console.log(
+          `[SOCKET] Disconnected: ${socket.id}`
+        );
 
-      console.log(
-        `[SOCKET] Reason: ${reason}`
-      );
-    });
+
+        console.log(
+          `[SOCKET] Reason: ${reason}`
+        );
+      }
+    );
   });
 }

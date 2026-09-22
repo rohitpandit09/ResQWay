@@ -1,6 +1,9 @@
 // Backend/src/emergency/emergencyService.js
 
+import { EventEmitter } from "events";
+
 import {
+  simulationEvents,
   startSimulation,
   getSimulation,
   hasSimulation,
@@ -18,14 +21,23 @@ import {
 
 
 // ==================================================
+// EMERGENCY EVENTS
+// ==================================================
+
+export const emergencyEvents =
+  new EventEmitter();
+
+
+// ==================================================
 // ACTIVE EMERGENCY SESSIONS
 // ==================================================
 
-const emergencySessions = new Map();
+const emergencySessions =
+  new Map();
 
 
 // ==================================================
-// ID GENERATOR
+// GENERATE EMERGENCY ID
 // ==================================================
 
 function generateEmergencyId() {
@@ -49,54 +61,122 @@ export function createEmergencySession({
   const session = {
     emergencyId,
 
+    // ---------------------------------------------
+    // CALLER
+    // ---------------------------------------------
+
     caller: {
-      id: callerId,
+      id:
+        callerId,
 
       location: {
-        node: callerNode,
+        node:
+          callerNode,
       },
     },
 
+
+    // ---------------------------------------------
+    // AMBULANCE
+    // ---------------------------------------------
+
     ambulance: {
-      id: "AMB-01",
+      id:
+        "AMB-01",
 
       driverId,
 
-      startNode: "A1",
+      startNode:
+        "A1",
     },
+
+
+    // ---------------------------------------------
+    // DESTINATION
+    // ---------------------------------------------
 
     destination: {
-      clientNode: callerNode,
+      clientNode:
+        callerNode,
 
-      hospitalNode: HOSPITAL_NODE,
+      hospitalNode:
+        HOSPITAL_NODE,
     },
+
+
+    // ---------------------------------------------
+    // EMERGENCY STATUS
+    // ---------------------------------------------
 
     status:
       EMERGENCY_STATUS.CALLING,
 
+
+    // ---------------------------------------------
+    // AI ANALYSIS
+    // ---------------------------------------------
+
     aiAnalysis: {
-      completed: false,
+      completed:
+        false,
 
-      isGenuine: null,
+      isGenuine:
+        null,
 
-      confidence: null,
+      confidence:
+        null,
 
-      category: null,
+      category:
+        null,
 
-      reason: null,
+      reason:
+        null,
     },
+
+
+    // ---------------------------------------------
+    // SIMULATION
+    // ---------------------------------------------
 
     simulation: {
-      started: false,
+      started:
+        false,
 
-      completed: false,
+      completed:
+        false,
     },
 
-    createdAt: Date.now(),
 
-    startedAt: null,
+    // ---------------------------------------------
+    // LATEST SIMULATION DATA
+    // ---------------------------------------------
+    //
+    // This is updated continuously from the
+    // simulation manager.
+    //
 
-    completedAt: null,
+    latestSimulationState:
+      null,
+
+    latestTelemetry:
+      null,
+
+    latestSnapshot:
+      null,
+
+
+    // ---------------------------------------------
+    // TIMESTAMPS
+    // ---------------------------------------------
+
+    createdAt:
+      Date.now(),
+
+    startedAt:
+      null,
+
+    completedAt:
+      null,
   };
 
 
@@ -108,6 +188,13 @@ export function createEmergencySession({
 
   console.log(
     `[EMERGENCY] Created: ${emergencyId}`
+  );
+
+
+  // Tell other backend modules
+  emergencyEvents.emit(
+    "emergency:created",
+    session
   );
 
 
@@ -127,6 +214,7 @@ export function startEmergencySession(
       emergencyId
     );
 
+
   if (!session) {
     throw new Error(
       `Emergency not found: ${emergencyId}`
@@ -138,7 +226,9 @@ export function startEmergencySession(
   // Prevent duplicate start
   // -----------------------------------------------
 
-  if (session.simulation.started) {
+  if (
+    session.simulation.started
+  ) {
     throw new Error(
       `Emergency already started: ${emergencyId}`
     );
@@ -146,23 +236,30 @@ export function startEmergencySession(
 
 
   // -----------------------------------------------
-  // Mark AI analysis
+  // AI ANALYSIS
   // -----------------------------------------------
 
   session.status =
     EMERGENCY_STATUS.AI_ANALYSIS;
 
 
+  // TEMPORARY
+  // -----------------------------------------------
+  // Groq will replace this later.
+  // -----------------------------------------------
+
   session.aiAnalysis = {
-    completed: true,
+    completed:
+      true,
 
-    // TEMPORARY
-    // Groq will replace this later
-    isGenuine: true,
+    isGenuine:
+      true,
 
-    confidence: 1,
+    confidence:
+      1,
 
-    category: "MEDICAL_EMERGENCY",
+    category:
+      "MEDICAL_EMERGENCY",
 
     reason:
       "Temporary simulation approval",
@@ -170,23 +267,38 @@ export function startEmergencySession(
 
 
   // -----------------------------------------------
-  // Genuine emergency
+  // NOT GENUINE
   // -----------------------------------------------
 
-  if (!session.aiAnalysis.isGenuine) {
+  if (
+    !session.aiAnalysis.isGenuine
+  ) {
     session.status =
       EMERGENCY_STATUS.REJECTED;
+
+
+    emergencyEvents.emit(
+      "emergency:rejected",
+      session
+    );
+
 
     return session;
   }
 
 
   // -----------------------------------------------
-  // Dispatch
+  // DISPATCHED
   // -----------------------------------------------
 
   session.status =
     EMERGENCY_STATUS.DISPATCHED;
+
+
+  emergencyEvents.emit(
+    "emergency:dispatched",
+    session
+  );
 
 
   // -----------------------------------------------
@@ -214,8 +326,209 @@ export function startEmergencySession(
   );
 
 
+  emergencyEvents.emit(
+    "emergency:started",
+    session
+  );
+
+
   return session;
 }
+
+
+// ==================================================
+// SYNC EMERGENCY FROM SIMULATION
+// ==================================================
+//
+// This listener keeps the emergency session's status
+// synchronized with the backend simulation.
+//
+// Simulation:
+//     EN_ROUTE_TO_USER
+//     ARRIVED_AT_USER
+//     EN_ROUTE_TO_HOSPITAL
+//     COMPLETED
+//
+// becomes the emergency session status too.
+// ==================================================
+
+simulationEvents.on(
+  "simulation:state",
+  ({
+    emergencyId,
+    telemetry,
+    snapshot,
+  }) => {
+
+    const session =
+      emergencySessions.get(
+        emergencyId
+      );
+
+
+    // Emergency may not exist
+    if (!session) {
+      return;
+    }
+
+
+    // ---------------------------------------------
+    // Store latest live simulation state
+    // ---------------------------------------------
+
+    session.latestSimulationState =
+      snapshot || null;
+
+    session.latestTelemetry =
+      telemetry || null;
+
+    session.latestSnapshot =
+      snapshot || null;
+
+
+    // ---------------------------------------------
+    // Read simulation ambulance status
+    // ---------------------------------------------
+
+    const simulationStatus =
+      telemetry?.ambulance?.status;
+
+
+    if (!simulationStatus) {
+      return;
+    }
+
+
+    // ---------------------------------------------
+    // Detect status change
+    // ---------------------------------------------
+
+    const previousStatus =
+      session.status;
+
+
+    // ---------------------------------------------
+    // EN ROUTE TO USER
+    // ---------------------------------------------
+
+    if (
+      simulationStatus ===
+      "EN_ROUTE_TO_USER"
+    ) {
+      session.status =
+        EMERGENCY_STATUS.EN_ROUTE_TO_USER;
+    }
+
+
+    // ---------------------------------------------
+    // ARRIVED AT USER
+    // ---------------------------------------------
+
+    else if (
+      simulationStatus ===
+      "ARRIVED_AT_USER"
+    ) {
+      session.status =
+        EMERGENCY_STATUS.ARRIVED_AT_USER;
+    }
+
+
+    // ---------------------------------------------
+    // PATIENT PICKUP
+    // ---------------------------------------------
+
+    else if (
+      simulationStatus ===
+      "PATIENT_PICKUP"
+    ) {
+      session.status =
+        EMERGENCY_STATUS.PATIENT_PICKUP;
+    }
+
+
+    // ---------------------------------------------
+    // EN ROUTE TO HOSPITAL
+    // ---------------------------------------------
+
+    else if (
+      simulationStatus ===
+      "EN_ROUTE_TO_HOSPITAL"
+    ) {
+      session.status =
+        EMERGENCY_STATUS.EN_ROUTE_TO_HOSPITAL;
+    }
+
+
+    // ---------------------------------------------
+    // COMPLETED
+    // ---------------------------------------------
+
+    else if (
+      simulationStatus ===
+      "COMPLETED"
+    ) {
+      session.status =
+        EMERGENCY_STATUS.COMPLETED;
+
+
+      session.simulation.completed =
+        true;
+
+      session.completedAt =
+        Date.now();
+    }
+
+
+    // ---------------------------------------------
+    // Log status transition
+    // ---------------------------------------------
+
+    if (
+      previousStatus !==
+      session.status
+    ) {
+
+      console.log(
+        `[EMERGENCY] ${emergencyId}: ${previousStatus} → ${session.status}`
+      );
+
+
+      emergencyEvents.emit(
+        "emergency:status-changed",
+        {
+          emergencyId,
+
+          previousStatus,
+
+          status:
+            session.status,
+
+          telemetry,
+
+          snapshot,
+        }
+      );
+    }
+
+
+    // ---------------------------------------------
+    // Always emit live update
+    // ---------------------------------------------
+
+    emergencyEvents.emit(
+      "emergency:updated",
+      {
+        emergencyId,
+
+        session,
+
+        telemetry,
+
+        snapshot,
+      }
+    );
+  }
+);
 
 
 // ==================================================
@@ -230,11 +543,13 @@ export function getEmergencySession(
       emergencyId
     );
 
+
   if (!session) {
     return null;
   }
 
 
+  // Get active simulation if available
   const simulation =
     getSimulation(
       emergencyId
@@ -245,9 +560,17 @@ export function getEmergencySession(
     ...session,
 
     simulationState:
-      simulation
-        ? simulation
-        : null,
+      simulation ||
+      session.latestSimulationState ||
+      null,
+
+    telemetry:
+      session.latestTelemetry ||
+      null,
+
+    snapshot:
+      session.latestSnapshot ||
+      null,
   };
 }
 
@@ -264,10 +587,15 @@ export function cancelEmergencySession(
       emergencyId
     );
 
+
   if (!session) {
     return false;
   }
 
+
+  // -----------------------------------------------
+  // Stop active simulation
+  // -----------------------------------------------
 
   if (
     hasSimulation(
@@ -280,12 +608,22 @@ export function cancelEmergencySession(
   }
 
 
+  // -----------------------------------------------
+  // Update state
+  // -----------------------------------------------
+
   session.status =
     EMERGENCY_STATUS.CANCELLED;
 
 
   session.simulation.started =
     false;
+
+
+  emergencyEvents.emit(
+    "emergency:cancelled",
+    session
+  );
 
 
   console.log(

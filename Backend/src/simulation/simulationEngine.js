@@ -14,6 +14,16 @@ import {
   getMovementSignalState,
 } from "./signalEngine.js";
 
+import {
+  createGreenCorridorState,
+  updateGreenCorridor,
+} from "./greenCorridor.js";
+
+import {
+  createSignalControllers,
+  updateSignalControllers,
+} from "./signalController.js";
+
 
 // ==================================================
 // CONFIGURATION
@@ -27,7 +37,9 @@ export const AMBULANCE_ACCELERATION = 3.5;
 export const TRAFFIC_MIN_SPEED = 3.5;
 export const TRAFFIC_MAX_SPEED = 7;
 
+export const USER_ARRIVAL_CONFIRMATION_DURATION = 1.0;
 export const PICKUP_DURATION = 2.5;
+export const HOSPITAL_COMPLETION_DURATION = 2.5;
 
 
 // ==================================================
@@ -35,17 +47,30 @@ export const PICKUP_DURATION = 2.5;
 // ==================================================
 
 function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(
+    min,
+    Math.min(max, value)
+  );
 }
 
 
-function moveTowards(current, target, maxDelta) {
+function moveTowards(
+  current,
+  target,
+  maxDelta
+) {
   if (current < target) {
-    return Math.min(current + maxDelta, target);
+    return Math.min(
+      current + maxDelta,
+      target
+    );
   }
 
   if (current > target) {
-    return Math.max(current - maxDelta, target);
+    return Math.max(
+      current - maxDelta,
+      target
+    );
   }
 
   return current;
@@ -56,15 +81,17 @@ function calculateTargetSpeed(
   simulationTime,
   routeIndex
 ) {
-  const wave1 = Math.sin(
-    simulationTime * 0.45 +
-    routeIndex * 1.3
-  );
+  const wave1 =
+    Math.sin(
+      simulationTime * 0.45 +
+      routeIndex * 1.3
+    );
 
-  const wave2 = Math.sin(
-    simulationTime * 0.9 +
-    routeIndex * 0.7
-  );
+  const wave2 =
+    Math.sin(
+      simulationTime * 0.9 +
+      routeIndex * 0.7
+    );
 
   const target =
     8.5 +
@@ -88,8 +115,11 @@ export function getInterpolatedPosition(
   toNodeId,
   progress
 ) {
-  const from = getNodePosition(fromNodeId);
-  const to = getNodePosition(toNodeId);
+  const from =
+    getNodePosition(fromNodeId);
+
+  const to =
+    getNodePosition(toNodeId);
 
   if (!from || !to) {
     return {
@@ -98,20 +128,23 @@ export function getInterpolatedPosition(
     };
   }
 
-  const safeProgress = clamp(
-    progress,
-    0,
-    1
-  );
+  const safeProgress =
+    clamp(
+      progress,
+      0,
+      1
+    );
 
   return {
     x:
       from.x +
-      (to.x - from.x) * safeProgress,
+      (to.x - from.x) *
+      safeProgress,
 
     z:
       from.z +
-      (to.z - from.z) * safeProgress,
+      (to.z - from.z) *
+      safeProgress,
   };
 }
 
@@ -126,37 +159,55 @@ export function createAmbulanceState() {
 
     driverId: "DRIVER-001",
 
-    currentNode: AMBULANCE_START_NODE,
+    currentNode:
+      AMBULANCE_START_NODE,
 
-    nextNode: FULL_EMERGENCY_ROUTE[1],
+    nextNode:
+      FULL_EMERGENCY_ROUTE[1],
 
-    route: [...FULL_EMERGENCY_ROUTE],
+    route:
+      [...FULL_EMERGENCY_ROUTE],
 
     routeIndex: 0,
 
     progress: 0,
 
-    position: getInterpolatedPosition(
-      AMBULANCE_START_NODE,
-      FULL_EMERGENCY_ROUTE[1],
-      0
-    ),
+    position:
+      getInterpolatedPosition(
+        AMBULANCE_START_NODE,
+        FULL_EMERGENCY_ROUTE[1],
+        0
+      ),
 
-    speed: AMBULANCE_INITIAL_SPEED,
+    speed:
+      AMBULANCE_INITIAL_SPEED,
 
-    targetSpeed: AMBULANCE_INITIAL_SPEED,
+    targetSpeed:
+      AMBULANCE_INITIAL_SPEED,
 
-    status: "EN_ROUTE_TO_USER",
+    status:
+      "EN_ROUTE_TO_USER",
 
-    waitingForSignal: null,
+    waitingForSignal:
+      null,
 
-    signalWaitSeconds: 0,
+    signalWaitSeconds:
+      0,
 
-    pickupTimer: 0,
+    userArrivalTimer:
+      0,
 
-    passengerOnboard: false,
+    pickupTimer:
+      0,
 
-    completed: false,
+    hospitalTimer:
+      0,
+
+    passengerOnboard:
+      false,
+
+    completed:
+      false,
   };
 }
 
@@ -173,34 +224,40 @@ function createTrafficVehicle(
   return {
     id,
 
-    route: [...route],
+    route:
+      [...route],
 
     routeIndex: 0,
 
-    currentNode: route[0],
+    currentNode:
+      route[0],
 
-    nextNode: route[1],
+    nextNode:
+      route[1],
 
     progress: 0,
 
     speed,
 
-    position: getInterpolatedPosition(
-      route[0],
-      route[1],
-      0
-    ),
+    position:
+      getInterpolatedPosition(
+        route[0],
+        route[1],
+        0
+      ),
 
-    waitingForSignal: null,
+    waitingForSignal:
+      null,
 
-    active: true,
+    active:
+      true,
   };
 }
 
 
-// --------------------------------------------------
-// Deterministic traffic routes
-// --------------------------------------------------
+// ==================================================
+// CREATE TRAFFIC VEHICLES
+// ==================================================
 
 export function createTrafficVehicles() {
   return [
@@ -274,20 +331,24 @@ export function createTrafficVehicles() {
 
 
 // ==================================================
-// CHECK SIGNAL
+// CHECK SIGNAL FOR VEHICLE
 // ==================================================
 
 function canVehicleMoveThroughSignal(
   currentNode,
   nextNode,
-  simulationTime
+  simulationTime,
+  corridorState,
+  signalControllers
 ) {
   const signalState =
     getMovementSignalState(
       nextNode,
       currentNode,
       nextNode,
-      simulationTime
+      simulationTime,
+      corridorState,
+      signalControllers
     );
 
   return signalState === "GREEN";
@@ -295,13 +356,15 @@ function canVehicleMoveThroughSignal(
 
 
 // ==================================================
-// ADVANCE TRAFFIC VEHICLE
+// UPDATE TRAFFIC VEHICLE
 // ==================================================
 
 function updateTrafficVehicle(
   vehicle,
   deltaSeconds,
-  simulationTime
+  simulationTime,
+  corridorState,
+  signalControllers
 ) {
   if (
     !vehicle.active ||
@@ -310,29 +373,34 @@ function updateTrafficVehicle(
     return vehicle;
   }
 
-  // -----------------------------------------------
-  // Check signal before entering next intersection
-  // -----------------------------------------------
-
   const canMove =
     canVehicleMoveThroughSignal(
       vehicle.currentNode,
       vehicle.nextNode,
-      simulationTime
+      simulationTime,
+      corridorState,
+      signalControllers
     );
 
-  if (!canMove && vehicle.progress <= 0) {
+  // -----------------------------------------------
+  // WAIT AT RED / YELLOW
+  // -----------------------------------------------
+
+  if (
+    !canMove &&
+    vehicle.progress <= 0
+  ) {
     vehicle.waitingForSignal =
       vehicle.nextNode;
 
     return vehicle;
   }
 
-  vehicle.waitingForSignal = null;
-
+  vehicle.waitingForSignal =
+    null;
 
   // -----------------------------------------------
-  // Move vehicle
+  // DISTANCE
   // -----------------------------------------------
 
   const distance =
@@ -345,17 +413,16 @@ function updateTrafficVehicle(
     return vehicle;
   }
 
+  // -----------------------------------------------
+  // MOVE
+  // -----------------------------------------------
+
   const movement =
     vehicle.speed *
     deltaSeconds;
 
   vehicle.progress +=
     movement / distance;
-
-
-  // -----------------------------------------------
-  // Update position
-  // -----------------------------------------------
 
   vehicle.position =
     getInterpolatedPosition(
@@ -364,23 +431,23 @@ function updateTrafficVehicle(
       vehicle.progress
     );
 
-
   // -----------------------------------------------
-  // Reached next intersection
+  // NODE REACHED
   // -----------------------------------------------
 
-  if (vehicle.progress >= 1) {
+  if (
+    vehicle.progress >= 1
+  ) {
     vehicle.routeIndex += 1;
 
-
-    // Loop traffic route
     if (
       vehicle.routeIndex >=
       vehicle.route.length - 1
     ) {
+      // Loop traffic back to the start
+      // of its route.
       vehicle.routeIndex = 0;
     }
-
 
     vehicle.currentNode =
       vehicle.route[
@@ -413,22 +480,49 @@ function updateTrafficVehicle(
 function updateTraffic(
   traffic,
   deltaSeconds,
-  simulationTime
+  simulationTime,
+  corridorState,
+  signalControllers
 ) {
-  return traffic.map((vehicle) =>
-    updateTrafficVehicle(
-      {
-        ...vehicle,
-      },
-      deltaSeconds,
-      simulationTime
-    )
+  return traffic.map(
+    (vehicle) =>
+      updateTrafficVehicle(
+        {
+          ...vehicle,
+        },
+        deltaSeconds,
+        simulationTime,
+        corridorState,
+        signalControllers
+      )
   );
 }
 
 
 // ==================================================
-// AMBULANCE: ARRIVAL AT NODE
+// NODE POSITION OBJECT
+// ==================================================
+
+function getNodePositionObject(nodeId) {
+  const node =
+    ROAD_NODES[nodeId];
+
+  if (!node) {
+    return {
+      x: 0,
+      z: 0,
+    };
+  }
+
+  return {
+    x: node.position.x,
+    z: node.position.z,
+  };
+}
+
+
+// ==================================================
+// ADVANCE AMBULANCE ROUTE
 // ==================================================
 
 function advanceAmbulanceRoute(
@@ -437,7 +531,7 @@ function advanceAmbulanceRoute(
   ambulance.routeIndex += 1;
 
   // -----------------------------------------------
-  // Reached client
+  // ARRIVED AT USER
   // -----------------------------------------------
 
   if (
@@ -467,16 +561,24 @@ function advanceAmbulanceRoute(
 
     ambulance.targetSpeed = 0;
 
-    ambulance.waitingForSignal = null;
+    ambulance.waitingForSignal =
+      null;
 
-    ambulance.signalWaitSeconds = 0;
+    ambulance.signalWaitSeconds =
+      0;
+
+    ambulance.userArrivalTimer =
+      0;
+
+    ambulance.pickupTimer =
+      0;
 
     return ambulance;
   }
 
 
   // -----------------------------------------------
-  // Reached hospital
+  // ARRIVED AT HOSPITAL
   // -----------------------------------------------
 
   if (
@@ -487,7 +589,8 @@ function advanceAmbulanceRoute(
     ambulance.currentNode =
       HOSPITAL_NODE;
 
-    ambulance.nextNode = null;
+    ambulance.nextNode =
+      null;
 
     ambulance.progress = 0;
 
@@ -497,24 +600,27 @@ function advanceAmbulanceRoute(
       );
 
     ambulance.status =
-      "COMPLETED";
+      "ARRIVED_AT_HOSPITAL";
 
     ambulance.speed = 0;
 
     ambulance.targetSpeed = 0;
 
-    ambulance.completed = true;
+    ambulance.waitingForSignal =
+      null;
 
-    ambulance.waitingForSignal = null;
+    ambulance.signalWaitSeconds =
+      0;
 
-    ambulance.signalWaitSeconds = 0;
+    ambulance.hospitalTimer =
+      0;
 
     return ambulance;
   }
 
 
   // -----------------------------------------------
-  // Normal next segment
+  // NORMAL NEXT SEGMENT
   // -----------------------------------------------
 
   ambulance.currentNode =
@@ -541,37 +647,15 @@ function advanceAmbulanceRoute(
 
 
 // ==================================================
-// NODE POSITION OBJECT
-// ==================================================
-
-function getNodePositionObject(
-  nodeId
-) {
-  const node =
-    ROAD_NODES[nodeId];
-
-  if (!node) {
-    return {
-      x: 0,
-      z: 0,
-    };
-  }
-
-  return {
-    x: node.position.x,
-    z: node.position.z,
-  };
-}
-
-
-// ==================================================
 // UPDATE AMBULANCE
 // ==================================================
 
 function updateAmbulance(
   ambulance,
   deltaSeconds,
-  simulationTime
+  simulationTime,
+  corridorState,
+  signalControllers
 ) {
   // -----------------------------------------------
   // COMPLETED
@@ -583,12 +667,75 @@ function updateAmbulance(
 
 
   // -----------------------------------------------
-  // PATIENT PICKUP
+  // ARRIVED AT HOSPITAL
+  // -----------------------------------------------
+
+  if (
+    ambulance.status ===
+    "ARRIVED_AT_HOSPITAL"
+  ) {
+    ambulance.hospitalTimer +=
+      deltaSeconds;
+
+    ambulance.speed = 0;
+
+    ambulance.targetSpeed = 0;
+
+    if (
+      ambulance.hospitalTimer >=
+      HOSPITAL_COMPLETION_DURATION
+    ) {
+      ambulance.hospitalTimer = 0;
+
+      ambulance.status =
+        "COMPLETED";
+
+      ambulance.completed =
+        true;
+    }
+
+    return ambulance;
+  }
+
+
+  // -----------------------------------------------
+  // ARRIVED AT USER
   // -----------------------------------------------
 
   if (
     ambulance.status ===
     "ARRIVED_AT_USER"
+  ) {
+    ambulance.userArrivalTimer +=
+      deltaSeconds;
+
+    ambulance.speed = 0;
+
+    ambulance.targetSpeed = 0;
+
+    if (
+      ambulance.userArrivalTimer >=
+      USER_ARRIVAL_CONFIRMATION_DURATION
+    ) {
+      ambulance.userArrivalTimer = 0;
+
+      ambulance.pickupTimer = 0;
+
+      ambulance.status =
+        "PATIENT_PICKUP";
+    }
+
+    return ambulance;
+  }
+
+
+  // -----------------------------------------------
+  // PATIENT PICKUP
+  // -----------------------------------------------
+
+  if (
+    ambulance.status ===
+    "PATIENT_PICKUP"
   ) {
     ambulance.pickupTimer +=
       deltaSeconds;
@@ -603,7 +750,8 @@ function updateAmbulance(
     ) {
       ambulance.pickupTimer = 0;
 
-      ambulance.passengerOnboard = true;
+      ambulance.passengerOnboard =
+        true;
 
       ambulance.status =
         "EN_ROUTE_TO_HOSPITAL";
@@ -611,15 +759,15 @@ function updateAmbulance(
       ambulance.currentNode =
         CLIENT_NODE;
 
-      ambulance.nextNode =
-        ambulance.route[
-          ambulance.routeIndex + 1
-        ];
-
       ambulance.routeIndex =
         ambulance.route.indexOf(
           CLIENT_NODE
         );
+
+      ambulance.nextNode =
+        ambulance.route[
+          ambulance.routeIndex + 1
+        ];
 
       ambulance.progress = 0;
 
@@ -635,6 +783,12 @@ function updateAmbulance(
 
       ambulance.speed =
         AMBULANCE_INITIAL_SPEED;
+
+      ambulance.waitingForSignal =
+        null;
+
+      ambulance.signalWaitSeconds =
+        0;
     }
 
     return ambulance;
@@ -651,7 +805,7 @@ function updateAmbulance(
 
 
   // -----------------------------------------------
-  // CHECK SIGNAL
+  // CONTROLLED SIGNAL
   // -----------------------------------------------
 
   const signalState =
@@ -659,50 +813,57 @@ function updateAmbulance(
       ambulance.nextNode,
       ambulance.currentNode,
       ambulance.nextNode,
-      simulationTime
-    );
-
-
-  // -----------------------------------------------
-  // RED / YELLOW
-  // -----------------------------------------------
-
-  if (
-    signalState !== "GREEN" &&
-    ambulance.progress <= 0
-  ) {
-    ambulance.waitingForSignal =
-      ambulance.nextNode;
-
-    ambulance.signalWaitSeconds +=
-      deltaSeconds;
-
-    ambulance.speed = 0;
-
-    return ambulance;
-  }
-
-
-  // -----------------------------------------------
-  // GREEN
-  // -----------------------------------------------
-
-  if (
-    ambulance.waitingForSignal
-  ) {
-    ambulance.waitingForSignal = null;
-  }
-
-
-  // -----------------------------------------------
-  // VARIABLE SPEED
-  // -----------------------------------------------
-
-  ambulance.targetSpeed =
-    calculateTargetSpeed(
       simulationTime,
-      ambulance.routeIndex
+      corridorState,
+      signalControllers
     );
+
+
+  // -----------------------------------------------
+// WAIT AT RED / YELLOW
+// -----------------------------------------------
+
+if (
+  signalState !== "GREEN" &&
+  ambulance.progress <= 0
+) {
+  ambulance.waitingForSignal =
+    ambulance.nextNode;
+
+  ambulance.signalWaitSeconds +=
+    deltaSeconds;
+
+  ambulance.speed = 0;
+
+  return ambulance;
+}
+
+
+// -----------------------------------------------
+// SIGNAL TURNED GREEN
+// -----------------------------------------------
+// Ambulance is no longer waiting at the signal,
+// so reset the accumulated waiting time.
+
+ambulance.waitingForSignal =
+  null;
+
+ambulance.signalWaitSeconds =
+  0;
+
+
+// -----------------------------------------------
+// VARIABLE SPEED
+// -----------------------------------------------
+
+ambulance.targetSpeed =
+  calculateTargetSpeed(
+    simulationTime,
+    ambulance.routeIndex
+  );
+
+
+  
 
   ambulance.speed =
     moveTowards(
@@ -736,7 +897,7 @@ function updateAmbulance(
 
 
   // -----------------------------------------------
-  // UPDATE POSITION
+  // POSITION
   // -----------------------------------------------
 
   ambulance.position =
@@ -751,12 +912,13 @@ function updateAmbulance(
   // NODE REACHED
   // -----------------------------------------------
 
-  if (ambulance.progress >= 1) {
+  if (
+    ambulance.progress >= 1
+  ) {
     advanceAmbulanceRoute(
       ambulance
     );
   }
-
 
   return ambulance;
 }
@@ -780,7 +942,14 @@ export function createSimulation() {
     traffic:
       createTrafficVehicles(),
 
-    lastEvent: "SIMULATION_STARTED",
+    greenCorridor:
+      createGreenCorridorState(),
+
+    signalControllers:
+      createSignalControllers(),
+
+    lastEvent:
+      "SIMULATION_STARTED",
   };
 }
 
@@ -800,7 +969,6 @@ export function updateSimulation(
     return simulation;
   }
 
-
   const safeDelta =
     Math.max(
       0,
@@ -812,7 +980,7 @@ export function updateSimulation(
 
 
   // -----------------------------------------------
-  // ADVANCE SIMULATION CLOCK
+  // CLOCK
   // -----------------------------------------------
 
   simulation.simulationTime +=
@@ -820,10 +988,37 @@ export function updateSimulation(
 
 
   // -----------------------------------------------
-  // UPDATE AMBULANCE
+  // GREEN CORRIDOR REQUEST
   // -----------------------------------------------
 
-  const previousAmbulanceStatus =
+  simulation.greenCorridor =
+    updateGreenCorridor(
+      simulation.greenCorridor,
+      simulation.ambulance,
+      simulation.simulationTime
+    );
+
+
+  // -----------------------------------------------
+  // APPLY SIGNAL CONTROLLER CHANGES
+  // -----------------------------------------------
+  // Controller state must be updated BEFORE
+  // vehicle movement so the ambulance and traffic
+  // read the actual controlled signal state.
+
+  simulation.signalControllers =
+    updateSignalControllers(
+      simulation.signalControllers,
+      simulation.greenCorridor,
+      safeDelta
+    );
+
+
+  // -----------------------------------------------
+  // AMBULANCE
+  // -----------------------------------------------
+
+  const previousStatus =
     simulation.ambulance.status;
 
   simulation.ambulance =
@@ -831,29 +1026,60 @@ export function updateSimulation(
       {
         ...simulation.ambulance,
       },
+
       safeDelta,
-      simulation.simulationTime
+
+      simulation.simulationTime,
+
+      simulation.greenCorridor,
+
+      simulation.signalControllers
     );
 
 
   // -----------------------------------------------
-  // UPDATE TRAFFIC
+  // NORMAL TRAFFIC
   // -----------------------------------------------
 
   simulation.traffic =
     updateTraffic(
       simulation.traffic,
+
       safeDelta,
+
+      simulation.simulationTime,
+
+      simulation.greenCorridor,
+
+      simulation.signalControllers
+    );
+
+
+  // -----------------------------------------------
+  // RECALCULATE CORRIDOR
+  // -----------------------------------------------
+  // The ambulance may have moved to another route
+  // segment. Recalculate the planning state for
+  // telemetry and the next controller update.
+  //
+  // We intentionally do NOT update signal controllers
+  // a second time in this same tick because that would
+  // decrement the controller timers twice.
+
+  simulation.greenCorridor =
+    updateGreenCorridor(
+      simulation.greenCorridor,
+      simulation.ambulance,
       simulation.simulationTime
     );
 
 
   // -----------------------------------------------
-  // DETECT EVENTS
+  // STATUS EVENT
   // -----------------------------------------------
 
   if (
-    previousAmbulanceStatus !==
+    previousStatus !==
     simulation.ambulance.status
   ) {
     simulation.lastEvent =
@@ -862,7 +1088,7 @@ export function updateSimulation(
 
 
   // -----------------------------------------------
-  // SIMULATION COMPLETE
+  // COMPLETED
   // -----------------------------------------------
 
   if (

@@ -5,14 +5,27 @@ import {
   getRoadNode,
 } from "./roadNetwork.js";
 
-// --------------------------------------------------
-// SIGNAL PHASE CONFIGURATION
-// --------------------------------------------------
-// 0 → Horizontal GREEN
-// 1 → Horizontal YELLOW
-// 2 → Vertical GREEN
-// 3 → Vertical YELLOW
-// --------------------------------------------------
+
+// ==================================================
+// NORMAL SIGNAL PHASES
+// ==================================================
+//
+// Phase 0:
+// Horizontal GREEN
+// Vertical RED
+//
+// Phase 1:
+// Horizontal YELLOW
+// Vertical RED
+//
+// Phase 2:
+// Horizontal RED
+// Vertical GREEN
+//
+// Phase 3:
+// Horizontal RED
+// Vertical YELLOW
+// ==================================================
 
 export const SIGNAL_PHASES = [
   {
@@ -44,197 +57,543 @@ export const SIGNAL_PHASES = [
   },
 ];
 
+
 export const SIGNAL_CYCLE_SECONDS = 42;
 
 
-// --------------------------------------------------
-// GET SIGNAL PHASE
-// --------------------------------------------------
+// ==================================================
+// GET NORMAL SIGNAL PHASE
+// ==================================================
 
-export function getSignalPhase(simulationTime) {
+export function getSignalPhase(
+  simulationTime
+) {
   const cycleTime =
-    simulationTime % SIGNAL_CYCLE_SECONDS;
+    simulationTime %
+    SIGNAL_CYCLE_SECONDS;
 
   let elapsed = 0;
+
 
   for (const phase of SIGNAL_PHASES) {
     if (
       cycleTime >= elapsed &&
-      cycleTime < elapsed + phase.duration
+      cycleTime <
+        elapsed + phase.duration
     ) {
       return {
         ...phase,
+
         remainingSeconds:
-          elapsed + phase.duration - cycleTime,
+          elapsed +
+          phase.duration -
+          cycleTime,
       };
     }
 
     elapsed += phase.duration;
   }
 
-  // Fallback
+
   return {
     ...SIGNAL_PHASES[0],
-    remainingSeconds: SIGNAL_PHASES[0].duration,
+
+    remainingSeconds:
+      SIGNAL_PHASES[0].duration,
   };
 }
 
 
-// --------------------------------------------------
-// GET SIGNAL STATE FOR A NODE
-// --------------------------------------------------
+// ==================================================
+// NORMAL SIGNAL SNAPSHOT
+// ==================================================
 
 export function getSignalSnapshot(
   nodeId,
   simulationTime
 ) {
-  const node = getRoadNode(nodeId);
+  const node =
+    getRoadNode(nodeId);
+
 
   if (!node) {
     return null;
   }
 
-  const phase = getSignalPhase(simulationTime);
+
+  const phase =
+    getSignalPhase(
+      simulationTime
+    );
+
 
   return {
-    signalId: node.signal.id,
-    nodeId: node.id,
+    signalId:
+      node.signal.id,
 
-    controller: node.signal.controller,
+    nodeId:
+      node.id,
 
-    phase: phase.phase,
+    controller:
+      node.signal.controller,
 
-    horizontal: phase.horizontal,
-    vertical: phase.vertical,
+    phase:
+      phase.phase,
 
-    remainingSeconds: Math.max(
+    horizontal:
+      phase.horizontal,
+
+    vertical:
+      phase.vertical,
+
+    remainingSeconds:
+      Math.max(
+        0,
+        phase.remainingSeconds
+      ),
+
+    cycleSeconds:
+      SIGNAL_CYCLE_SECONDS,
+
+    mode:
+      "NORMAL",
+
+    priority:
+      false,
+
+    priorityDirection:
+      null,
+
+    priorityRemainingSeconds:
       0,
-      phase.remainingSeconds
-    ),
 
-    cycleSeconds: SIGNAL_CYCLE_SECONDS,
-
-    mode: "NORMAL",
+    lastAction:
+      "NORMAL_CYCLE",
   };
 }
 
 
-// --------------------------------------------------
-// DETERMINE MOVEMENT DIRECTION
-// --------------------------------------------------
-// Returns:
+// ==================================================
+// GET PRIORITY REQUEST FOR SIGNAL
+// ==================================================
+
+function getPrioritySignal(
+  nodeId,
+  corridorState
+) {
+  if (
+    !corridorState ||
+    !Array.isArray(
+      corridorState.signals
+    )
+  ) {
+    return null;
+  }
+
+
+  return (
+    corridorState.signals.find(
+      (signal) =>
+        signal.nodeId === nodeId
+    ) || null
+  );
+}
+
+
+// ==================================================
+// CONTROLLED SIGNAL SNAPSHOT
+// ==================================================
 //
-// HORIZONTAL
-// VERTICAL
+// Priority order:
 //
-// Example:
+// 1. Mutable signal controller
+// 2. Green Corridor fallback
+// 3. Normal signal cycle
 //
-// A1 → A2 = HORIZONTAL
-// A2 → B2 = VERTICAL
-// --------------------------------------------------
+// The signal controller is the authoritative
+// source once the simulation is running.
+// ==================================================
+
+export function getControlledSignalSnapshot(
+  nodeId,
+  simulationTime,
+  corridorState = null,
+  signalControllers = null
+) {
+  // -----------------------------------------------
+  // 1. LIVE MUTABLE SIGNAL CONTROLLER
+  // -----------------------------------------------
+
+  if (
+    signalControllers &&
+    signalControllers[nodeId]
+  ) {
+    return {
+      ...signalControllers[nodeId],
+    };
+  }
+
+
+  // -----------------------------------------------
+  // 2. FALLBACK TO NORMAL SIGNAL
+  // -----------------------------------------------
+
+  const normalSignal =
+    getSignalSnapshot(
+      nodeId,
+      simulationTime
+    );
+
+
+  if (!normalSignal) {
+    return null;
+  }
+
+
+  // -----------------------------------------------
+  // 3. FALLBACK TO GREEN CORRIDOR STATE
+  // -----------------------------------------------
+
+  const priority =
+    getPrioritySignal(
+      nodeId,
+      corridorState
+    );
+
+
+  if (!priority) {
+    return normalSignal;
+  }
+
+
+  const direction =
+    priority.direction;
+
+
+  // ===============================================
+  // CLEARING
+  // ===============================================
+
+  if (
+    priority.mode ===
+    "CLEARING"
+  ) {
+    let horizontal =
+      "RED";
+
+    let vertical =
+      "RED";
+
+
+    if (
+      direction ===
+      "HORIZONTAL"
+    ) {
+      horizontal =
+        "RED";
+
+      vertical =
+        "YELLOW";
+    }
+
+
+    if (
+      direction ===
+      "VERTICAL"
+    ) {
+      horizontal =
+        "YELLOW";
+
+      vertical =
+        "RED";
+    }
+
+
+    return {
+      ...normalSignal,
+
+      horizontal,
+
+      vertical,
+
+      mode:
+        "CLEARING",
+
+      priority:
+        true,
+
+      priorityDirection:
+        direction,
+
+      remainingSeconds:
+        Math.max(
+          0,
+          priority.secondsUntilGreen || 0
+        ),
+
+      priorityRemainingSeconds:
+        Math.max(
+          0,
+          priority.priorityRemaining || 0
+        ),
+
+      lastAction:
+        "EMERGENCY_CLEARING",
+    };
+  }
+
+
+  // ===============================================
+  // EMERGENCY PRIORITY
+  // ===============================================
+
+  if (
+    priority.mode ===
+    "EMERGENCY_PRIORITY"
+  ) {
+    const horizontal =
+      direction ===
+      "HORIZONTAL"
+        ? "GREEN"
+        : "RED";
+
+
+    const vertical =
+      direction ===
+      "VERTICAL"
+        ? "GREEN"
+        : "RED";
+
+
+    return {
+      ...normalSignal,
+
+      horizontal,
+
+      vertical,
+
+      mode:
+        "EMERGENCY_PRIORITY",
+
+      priority:
+        true,
+
+      priorityDirection:
+        direction,
+
+      remainingSeconds:
+        Math.max(
+          0,
+          priority.priorityRemaining || 0
+        ),
+
+      priorityRemainingSeconds:
+        Math.max(
+          0,
+          priority.priorityRemaining || 0
+        ),
+
+      lastAction:
+        "EMERGENCY_GREEN",
+    };
+  }
+
+
+  return normalSignal;
+}
+
+
+// ==================================================
+// GET MOVEMENT DIRECTION
+// ==================================================
 
 export function getMovementDirection(
   fromNodeId,
   toNodeId
 ) {
-  const fromNode = ROAD_NODES[fromNodeId];
-  const toNode = ROAD_NODES[toNodeId];
+  const fromNode =
+    ROAD_NODES[fromNodeId];
 
-  if (!fromNode || !toNode) {
+  const toNode =
+    ROAD_NODES[toNodeId];
+
+
+  if (
+    !fromNode ||
+    !toNode
+  ) {
     return null;
   }
 
+
   const sameRow =
-    fromNode.row === toNode.row;
+    fromNode.row ===
+    toNode.row;
 
   const sameColumn =
-    fromNode.column === toNode.column;
+    fromNode.column ===
+    toNode.column;
 
-  if (sameRow && !sameColumn) {
+
+  // -----------------------------------------------
+  // Horizontal movement
+  // -----------------------------------------------
+
+  if (
+    sameRow &&
+    !sameColumn
+  ) {
     return "HORIZONTAL";
   }
 
-  if (sameColumn && !sameRow) {
+
+  // -----------------------------------------------
+  // Vertical movement
+  // -----------------------------------------------
+
+  if (
+    sameColumn &&
+    !sameRow
+  ) {
     return "VERTICAL";
   }
+
 
   return null;
 }
 
 
-// --------------------------------------------------
+// ==================================================
 // GET MOVEMENT SIGNAL STATE
-// --------------------------------------------------
+// ==================================================
 
 export function getMovementSignalState(
   nodeId,
   fromNodeId,
   toNodeId,
-  simulationTime
+  simulationTime,
+  corridorState = null,
+  signalControllers = null
 ) {
-  const signal = getSignalSnapshot(
-    nodeId,
-    simulationTime
-  );
+  const signal =
+    getControlledSignalSnapshot(
+      nodeId,
+      simulationTime,
+      corridorState,
+      signalControllers
+    );
+
 
   if (!signal) {
     return "RED";
   }
 
-  const direction = getMovementDirection(
-    fromNodeId,
-    toNodeId
-  );
 
-  if (direction === "HORIZONTAL") {
+  const direction =
+    getMovementDirection(
+      fromNodeId,
+      toNodeId
+    );
+
+
+  if (
+    direction ===
+    "HORIZONTAL"
+  ) {
     return signal.horizontal;
   }
 
-  if (direction === "VERTICAL") {
+
+  if (
+    direction ===
+    "VERTICAL"
+  ) {
     return signal.vertical;
   }
+
 
   return "RED";
 }
 
 
-// --------------------------------------------------
+// ==================================================
 // CAN VEHICLE PROCEED?
-// --------------------------------------------------
+// ==================================================
 
 export function canVehicleProceed(
   nodeId,
   fromNodeId,
   toNodeId,
-  simulationTime
+  simulationTime,
+  corridorState = null,
+  signalControllers = null
 ) {
-  const state = getMovementSignalState(
-    nodeId,
-    fromNodeId,
-    toNodeId,
-    simulationTime
-  );
+  const state =
+    getMovementSignalState(
+      nodeId,
+      fromNodeId,
+      toNodeId,
+      simulationTime,
+      corridorState,
+      signalControllers
+    );
+
 
   return state === "GREEN";
 }
 
 
-// --------------------------------------------------
-// GET ALL SIGNAL STATES
-// --------------------------------------------------
+// ==================================================
+// GET ALL NORMAL SIGNAL SNAPSHOTS
+// ==================================================
 
 export function getAllSignalSnapshots(
   simulationTime
 ) {
   const snapshots = {};
 
-  for (const nodeId of Object.keys(ROAD_NODES)) {
+
+  for (
+    const nodeId of
+    Object.keys(ROAD_NODES)
+  ) {
     snapshots[nodeId] =
       getSignalSnapshot(
         nodeId,
         simulationTime
       );
   }
+
+
+  return snapshots;
+}
+
+
+// ==================================================
+// GET ALL CONTROLLED SIGNAL SNAPSHOTS
+// ==================================================
+
+export function getAllControlledSignalSnapshots(
+  simulationTime,
+  corridorState = null,
+  signalControllers = null
+) {
+  const snapshots = {};
+
+
+  for (
+    const nodeId of
+    Object.keys(ROAD_NODES)
+  ) {
+    snapshots[nodeId] =
+      getControlledSignalSnapshot(
+        nodeId,
+        simulationTime,
+        corridorState,
+        signalControllers
+      );
+  }
+
 
   return snapshots;
 }

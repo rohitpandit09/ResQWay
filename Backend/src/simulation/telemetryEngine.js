@@ -9,7 +9,7 @@ import {
 } from "./roadNetwork.js";
 
 import {
-  getSignalSnapshot,
+  getControlledSignalSnapshot,
   getMovementSignalState,
 } from "./signalEngine.js";
 
@@ -22,11 +22,14 @@ const DEFAULT_ETA_SPEED = 8;
 
 
 // ==================================================
-// BASIC HELPERS
+// HELPERS
 // ==================================================
 
 function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(
+    min,
+    Math.min(max, value)
+  );
 }
 
 
@@ -35,9 +38,14 @@ function round(value, decimals = 2) {
     return 0;
   }
 
-  const factor = 10 ** decimals;
+  const factor =
+    10 ** decimals;
 
-  return Math.round(value * factor) / factor;
+  return (
+    Math.round(
+      value * factor
+    ) / factor
+  );
 }
 
 
@@ -54,19 +62,22 @@ function getSafeSpeed(speed) {
 
 
 // ==================================================
-// DISTANCE FROM CURRENT AMBULANCE POSITION
-// TO DESTINATION NODE
+// DISTANCE TO DESTINATION
 // ==================================================
 
 export function getDistanceToDestination(
   ambulance,
   destinationNode
 ) {
-  if (!ambulance || !destinationNode) {
+  if (
+    !ambulance ||
+    !destinationNode
+  ) {
     return 0;
   }
 
-  const route = ambulance.route;
+  const route =
+    ambulance.route;
 
   const routeIndex =
     ambulance.routeIndex;
@@ -78,13 +89,48 @@ export function getDistanceToDestination(
     return 0;
   }
 
+  // -----------------------------------------------
+  // Already at destination
+  // -----------------------------------------------
+
+  if (
+    ambulance.currentNode ===
+    destinationNode
+  ) {
+    return 0;
+  }
+
+  // -----------------------------------------------
+  // Find destination in current route
+  // -----------------------------------------------
+
+  const destinationIndex =
+    route.indexOf(
+      destinationNode
+    );
+
+  if (
+    destinationIndex === -1
+  ) {
+    return 0;
+  }
+
+  // -----------------------------------------------
+  // Destination already behind ambulance
+  // -----------------------------------------------
+
+  if (
+    destinationIndex <
+    routeIndex
+  ) {
+    return 0;
+  }
 
   let totalDistance = 0;
 
-
-  // ------------------------------------------------
-  // Distance remaining on current road segment
-  // ------------------------------------------------
+  // -----------------------------------------------
+  // Remaining current road segment
+  // -----------------------------------------------
 
   if (
     ambulance.currentNode &&
@@ -104,55 +150,94 @@ export function getDistanceToDestination(
         1
       );
 
-    totalDistance +=
+    const remainingCurrentSegment =
       currentSegmentDistance *
       remainingProgress;
-  }
 
-
-  // ------------------------------------------------
-  // Remaining route segments
-  // ------------------------------------------------
-
-  for (
-    let i = routeIndex + 1;
-    i < route.length - 1;
-    i++
-  ) {
     totalDistance +=
-      getDistanceBetweenNodes(
-        route[i],
-        route[i + 1]
-      );
+      remainingCurrentSegment;
+
+    // ---------------------------------------------
+    // IMPORTANT:
+    // If nextNode IS the destination, stop here.
+    // Do not add any future route segments.
+    // ---------------------------------------------
 
     if (
-      route[i + 1] === destinationNode
+      ambulance.nextNode ===
+      destinationNode
     ) {
-      break;
+      return Math.max(
+        0,
+        totalDistance
+      );
     }
   }
 
+  // -----------------------------------------------
+  // Remaining route segments after nextNode
+  // -----------------------------------------------
 
-  return totalDistance;
+  const firstRemainingSegmentIndex =
+    routeIndex + 1;
+
+  for (
+    let i =
+      firstRemainingSegmentIndex;
+
+    i < destinationIndex;
+
+    i++
+  ) {
+    const fromNode =
+      route[i];
+
+    const toNode =
+      route[i + 1];
+
+    if (
+      !fromNode ||
+      !toNode
+    ) {
+      continue;
+    }
+
+    totalDistance +=
+      getDistanceBetweenNodes(
+        fromNode,
+        toNode
+      );
+  }
+
+  return Math.max(
+    0,
+    totalDistance
+  );
 }
 
 
 // ==================================================
-// GET ETA TO DESTINATION
+// ETA
 // ==================================================
 
 export function getETA(
   distance,
   speed
 ) {
-  const safeSpeed =
-    getSafeSpeed(speed);
-
-  if (distance <= 0) {
+  if (
+    !Number.isFinite(distance) ||
+    distance <= 0
+  ) {
     return 0;
   }
 
-  return distance / safeSpeed;
+  const safeSpeed =
+    getSafeSpeed(speed);
+
+  return (
+    distance /
+    safeSpeed
+  );
 }
 
 
@@ -172,28 +257,40 @@ export function getHeading(
   }
 
   const from =
-    getNodePosition(currentNode);
+    getNodePosition(
+      currentNode
+    );
 
   const to =
-    getNodePosition(nextNode);
+    getNodePosition(
+      nextNode
+    );
 
-  if (!from || !to) {
+  if (
+    !from ||
+    !to
+  ) {
     return 0;
   }
 
   const dx =
-    to.x - from.x;
+    to.x -
+    from.x;
 
   const dz =
-    to.z - from.z;
-
-  const radians =
-    Math.atan2(dz, dx);
+    to.z -
+    from.z;
 
   let degrees =
-    radians * (180 / Math.PI);
+    Math.atan2(
+      dz,
+      dx
+    ) *
+    (180 / Math.PI);
 
-  if (degrees < 0) {
+  if (
+    degrees < 0
+  ) {
     degrees += 360;
   }
 
@@ -202,12 +299,14 @@ export function getHeading(
 
 
 // ==================================================
-// GET CURRENT SIGNAL
+// CURRENT CONTROLLED SIGNAL
 // ==================================================
 
 export function getCurrentSignalTelemetry(
   ambulance,
-  simulationTime
+  simulationTime,
+  corridorState,
+  signalControllers = null
 ) {
   if (
     !ambulance ||
@@ -216,31 +315,34 @@ export function getCurrentSignalTelemetry(
     return null;
   }
 
-
   const signal =
-    getSignalSnapshot(
+    getControlledSignalSnapshot(
       ambulance.nextNode,
-      simulationTime
+      simulationTime,
+      corridorState,
+      signalControllers
     );
 
   if (!signal) {
     return null;
   }
 
-
   const movementState =
     getMovementSignalState(
       ambulance.nextNode,
       ambulance.currentNode,
       ambulance.nextNode,
-      simulationTime
+      simulationTime,
+      corridorState,
+      signalControllers
     );
 
-
   return {
-    id: signal.signalId,
+    id:
+      signal.signalId,
 
-    nodeId: signal.nodeId,
+    nodeId:
+      signal.nodeId,
 
     controller:
       signal.controller,
@@ -251,6 +353,12 @@ export function getCurrentSignalTelemetry(
     phase:
       signal.phase,
 
+    horizontal:
+      signal.horizontal,
+
+    vertical:
+      signal.vertical,
+
     remainingSeconds:
       round(
         signal.remainingSeconds,
@@ -258,10 +366,33 @@ export function getCurrentSignalTelemetry(
       ),
 
     cycleSeconds:
-      signal.cycleSeconds,
+      signal.cycleSeconds ??
+      42,
 
     mode:
       signal.mode,
+
+    priority:
+      signal.priority,
+
+    priorityDirection:
+      signal.priorityDirection,
+
+    priorityRemainingSeconds:
+      round(
+        signal.priorityRemainingSeconds || 0,
+        1
+      ),
+
+    clearingRemainingSeconds:
+      round(
+        signal.clearingRemainingSeconds || 0,
+        1
+      ),
+
+    lastAction:
+      signal.lastAction ||
+      null,
   };
 }
 
@@ -273,24 +404,26 @@ export function getCurrentSignalTelemetry(
 export function getUpcomingSignals(
   ambulance,
   simulationTime,
+  corridorState,
+  signalControllers = null,
   count = 4
 ) {
   if (
     !ambulance ||
-    !Array.isArray(ambulance.route)
+    !Array.isArray(
+      ambulance.route
+    )
   ) {
     return [];
   }
-
 
   const results = [];
 
   let accumulatedDistance = 0;
 
-
-  // ------------------------------------------------
-  // Current segment remaining distance
-  // ------------------------------------------------
+  // -----------------------------------------------
+  // Remaining current road segment
+  // -----------------------------------------------
 
   if (
     ambulance.currentNode &&
@@ -315,22 +448,23 @@ export function getUpcomingSignals(
       remainingProgress;
   }
 
-
   const safeSpeed =
     getSafeSpeed(
       ambulance.speed
     );
 
-
-  // ------------------------------------------------
-  // Starting from next intersection
-  // ------------------------------------------------
+  // -----------------------------------------------
+  // Upcoming route signals
+  // -----------------------------------------------
 
   for (
-    let i = ambulance.routeIndex + 1;
+    let i =
+      ambulance.routeIndex + 1;
 
-    i < ambulance.route.length &&
-    results.length < count;
+    i <
+      ambulance.route.length &&
+    results.length <
+      count;
 
     i++
   ) {
@@ -344,34 +478,51 @@ export function getUpcomingSignals(
       continue;
     }
 
-
-    const signal =
-      getSignalSnapshot(
-        nodeId,
-        simulationTime
-      );
-
-
     const fromNode =
-      ambulance.route[i - 1];
+      ambulance.route[
+        i - 1
+      ];
 
     const toNode =
       nodeId;
 
+    // ---------------------------------------------
+    // Get ACTUAL controlled signal
+    // ---------------------------------------------
+
+    const signal =
+      getControlledSignalSnapshot(
+        nodeId,
+        simulationTime,
+        corridorState,
+        signalControllers
+      );
+
+    if (!signal) {
+      continue;
+    }
+
+    // ---------------------------------------------
+    // Get actual movement state
+    // ---------------------------------------------
 
     const movementState =
       getMovementSignalState(
         nodeId,
         fromNode,
         toNode,
-        simulationTime
+        simulationTime,
+        corridorState,
+        signalControllers
       );
 
+    // ---------------------------------------------
+    // ETA to signal
+    // ---------------------------------------------
 
     const etaSeconds =
       accumulatedDistance /
       safeSpeed;
-
 
     results.push({
       id:
@@ -388,6 +539,12 @@ export function getUpcomingSignals(
       phase:
         signal.phase,
 
+      horizontal:
+        signal.horizontal,
+
+      vertical:
+        signal.vertical,
+
       remainingSeconds:
         round(
           signal.remainingSeconds,
@@ -400,13 +557,43 @@ export function getUpcomingSignals(
           1
         ),
 
+      cycleSeconds:
+        signal.cycleSeconds ??
+        42,
+
       mode:
         signal.mode,
+
+      priority:
+        signal.priority,
+
+      priorityDirection:
+        signal.priorityDirection,
+
+      priorityRemainingSeconds:
+        round(
+          signal.priorityRemainingSeconds || 0,
+          1
+        ),
+
+      clearingRemainingSeconds:
+        round(
+          signal.clearingRemainingSeconds || 0,
+          1
+        ),
+
+      lastAction:
+        signal.lastAction ||
+        null,
     });
 
+    // ---------------------------------------------
+    // Add distance to next segment
+    // ---------------------------------------------
 
     if (
-      i < ambulance.route.length - 1
+      i <
+      ambulance.route.length - 1
     ) {
       accumulatedDistance +=
         getDistanceBetweenNodes(
@@ -415,7 +602,6 @@ export function getUpcomingSignals(
         );
     }
   }
-
 
   return results;
 }
@@ -435,42 +621,118 @@ export function buildTelemetry(
     return null;
   }
 
-
   const ambulance =
     simulation.ambulance;
 
-
   const speed =
-    Number.isFinite(ambulance.speed)
+    Number.isFinite(
+      ambulance.speed
+    )
       ? ambulance.speed
       : 0;
 
 
-  const distanceToClient =
-    ambulance.status === "EN_ROUTE_TO_HOSPITAL" ||
-    ambulance.status === "ARRIVED_AT_USER" ||
-    ambulance.status === "COMPLETED"
-        ? 0
-        : getDistanceToDestination(
-            ambulance,
-            CLIENT_NODE
-        );
+  // =================================================
+  // DISTANCES
+  // =================================================
+
+  let distanceToClient = 0;
+
+  let distanceToHospital = 0;
 
 
-  const distanceToHospital =
-    getDistanceToDestination(
-      ambulance,
-      HOSPITAL_NODE
-    );
+  // -----------------------------------------------
+  // Going to user
+  // -----------------------------------------------
 
+  if (
+    ambulance.status ===
+    "EN_ROUTE_TO_USER"
+  ) {
+    distanceToClient =
+      getDistanceToDestination(
+        ambulance,
+        CLIENT_NODE
+      );
+
+    distanceToHospital =
+      getDistanceToDestination(
+        ambulance,
+        HOSPITAL_NODE
+      );
+  }
+
+
+  // -----------------------------------------------
+  // At user / pickup
+  // -----------------------------------------------
+
+  else if (
+    ambulance.status ===
+      "ARRIVED_AT_USER" ||
+
+    ambulance.status ===
+      "PATIENT_PICKUP"
+  ) {
+    distanceToClient = 0;
+
+    distanceToHospital =
+      getDistanceToDestination(
+        ambulance,
+        HOSPITAL_NODE
+      );
+  }
+
+
+  // -----------------------------------------------
+  // Going to hospital
+  // -----------------------------------------------
+
+  else if (
+    ambulance.status ===
+    "EN_ROUTE_TO_HOSPITAL"
+  ) {
+    distanceToClient = 0;
+
+    distanceToHospital =
+      getDistanceToDestination(
+        ambulance,
+        HOSPITAL_NODE
+      );
+  }
+
+
+  // -----------------------------------------------
+  // Hospital arrival / complete
+  // -----------------------------------------------
+
+  else if (
+    ambulance.status ===
+      "ARRIVED_AT_HOSPITAL" ||
+
+    ambulance.status ===
+      "COMPLETED"
+  ) {
+    distanceToClient = 0;
+
+    distanceToHospital = 0;
+  }
+
+
+  // =================================================
+  // ETA
+  // =================================================
 
   const etaToClient =
-    ambulance.passengerOnboard
-      ? 0
-      : getETA(
+    ambulance.status ===
+      "EN_ROUTE_TO_USER"
+
+      ? getETA(
           distanceToClient,
           speed
-        );
+        )
+
+      : 0;
 
 
   const etaToHospital =
@@ -480,6 +742,10 @@ export function buildTelemetry(
     );
 
 
+  // =================================================
+  // HEADING
+  // =================================================
+
   const heading =
     getHeading(
       ambulance.currentNode,
@@ -487,36 +753,57 @@ export function buildTelemetry(
     );
 
 
+  // =================================================
+  // CURRENT SIGNAL
+  // =================================================
+
   const currentSignal =
     getCurrentSignalTelemetry(
       ambulance,
-      simulation.simulationTime
+      simulation.simulationTime,
+      simulation.greenCorridor,
+      simulation.signalControllers
     );
 
+
+  // =================================================
+  // UPCOMING SIGNALS
+  // =================================================
 
   const upcomingSignals =
     getUpcomingSignals(
       ambulance,
-      simulation.simulationTime
+      simulation.simulationTime,
+      simulation.greenCorridor,
+      simulation.signalControllers
     );
 
 
-  // ------------------------------------------------
-  // Determine destination
-  // ------------------------------------------------
+  // =================================================
+  // DESTINATION
+  // =================================================
 
-  const destination =
+  let destination =
+    CLIENT_NODE;
+
+  if (
     ambulance.status ===
-    "EN_ROUTE_TO_HOSPITAL"
+      "EN_ROUTE_TO_HOSPITAL" ||
 
-      ? HOSPITAL_NODE
+    ambulance.status ===
+      "ARRIVED_AT_HOSPITAL" ||
 
-      : CLIENT_NODE;
+    ambulance.status ===
+      "COMPLETED"
+  ) {
+    destination =
+      HOSPITAL_NODE;
+  }
 
 
-  // ------------------------------------------------
-  // Determine route completion percentage
-  // ------------------------------------------------
+  // =================================================
+  // ROUTE PROGRESS
+  // =================================================
 
   const totalSegments =
     Math.max(
@@ -524,10 +811,10 @@ export function buildTelemetry(
       ambulance.route.length - 1
     );
 
-
   const routeProgress =
     (
       ambulance.routeIndex +
+
       clamp(
         ambulance.progress || 0,
         0,
@@ -537,10 +824,30 @@ export function buildTelemetry(
     totalSegments;
 
 
+  // =================================================
+  // JOURNEY STATUS
+  // =================================================
+
+  let journeyStatus =
+    ambulance.status;
+
+  if (
+    ambulance.waitingForSignal
+  ) {
+    journeyStatus =
+      "WAITING_AT_SIGNAL";
+  }
+
+
+  // =================================================
+  // FINAL TELEMETRY
+  // =================================================
+
   return {
-    // ---------------------------------------------
+
+    // ==============================================
     // TIME
-    // ---------------------------------------------
+    // ==============================================
 
     timestamp:
       Date.now(),
@@ -552,9 +859,9 @@ export function buildTelemetry(
       ),
 
 
-    // ---------------------------------------------
+    // ==============================================
     // SIMULATION
-    // ---------------------------------------------
+    // ==============================================
 
     running:
       simulation.running,
@@ -566,9 +873,9 @@ export function buildTelemetry(
       simulation.lastEvent,
 
 
-    // ---------------------------------------------
+    // ==============================================
     // AMBULANCE
-    // ---------------------------------------------
+    // ==============================================
 
     ambulance: {
       id:
@@ -580,16 +887,23 @@ export function buildTelemetry(
       status:
         ambulance.status,
 
+      journeyStatus:
+        journeyStatus,
+
       currentNode:
         ambulance.currentNode,
 
       nextNode:
         ambulance.nextNode,
 
-      destination,
+      destination:
+        destination,
 
       speed:
-        round(speed, 2),
+        round(
+          speed,
+          2
+        ),
 
       targetSpeed:
         round(
@@ -598,7 +912,10 @@ export function buildTelemetry(
         ),
 
       heading:
-        round(heading, 2),
+        round(
+          heading,
+          2
+        ),
 
       progress:
         round(
@@ -609,6 +926,11 @@ export function buildTelemetry(
           ),
           4
         ),
+
+
+      // -------------------------------------------
+      // POSITION
+      // -------------------------------------------
 
       position: {
         x:
@@ -623,12 +945,14 @@ export function buildTelemetry(
             2
           ),
 
+        // Reserved for future geographic GPS
         latitude:
           null,
 
         longitude:
           null,
       },
+
 
       waitingForSignal:
         ambulance.waitingForSignal,
@@ -644,9 +968,9 @@ export function buildTelemetry(
     },
 
 
-    // ---------------------------------------------
-    // DISTANCE + ETA
-    // ---------------------------------------------
+    // ==============================================
+    // JOURNEY
+    // ==============================================
 
     journey: {
       distanceToClient:
@@ -685,9 +1009,9 @@ export function buildTelemetry(
     },
 
 
-    // ---------------------------------------------
+    // ==============================================
     // SIGNALS
-    // ---------------------------------------------
+    // ==============================================
 
     signals: {
       current:
@@ -695,6 +1019,35 @@ export function buildTelemetry(
 
       upcoming:
         upcomingSignals,
+    },
+
+
+    // ==============================================
+    // GREEN CORRIDOR
+    // ==============================================
+
+    greenCorridor: {
+      active:
+        simulation.greenCorridor?.active ||
+        false,
+
+      mode:
+        simulation.greenCorridor?.mode ||
+        "NORMAL",
+
+      activeSignalId:
+        simulation.greenCorridor?.activeSignalId ||
+        null,
+
+      updatedAt:
+        round(
+          simulation.greenCorridor?.updatedAt || 0,
+          2
+        ),
+
+      signals:
+        simulation.greenCorridor?.signals ||
+        [],
     },
   };
 }
