@@ -1,0 +1,36 @@
+export const SIGNAL_PHASES = {
+    NORTH_SOUTH_GREEN: "NORTH_SOUTH_GREEN",
+    NORTH_SOUTH_YELLOW: "NORTH_SOUTH_YELLOW",
+    EAST_WEST_GREEN: "EAST_WEST_GREEN",
+    EAST_WEST_YELLOW: "EAST_WEST_YELLOW"
+};
+
+
+export const DEFAULT_SIGNAL_TIMINGS = {
+    NORTH_SOUTH_GREEN: 18,
+    NORTH_SOUTH_YELLOW: 3,
+    EAST_WEST_GREEN: 18,
+    EAST_WEST_YELLOW: 3
+};
+
+
+export function getNextPhase(currentPhase) {
+
+    switch (currentPhase) {
+
+        case SIGNAL_PHASES.NORTH_SOUTH_GREEN:
+            return SIGNAL_PHASES.NORTH_SOUTH_YELLOW;
+
+        case SIGNAL_PHASES.NORTH_SOUTH_YELLOW:
+            return SIGNAL_PHASES.EAST_WEST_GREEN;
+
+        case SIGNAL_PHASES.EAST_WEST_GREEN:
+            return SIGNAL_PHASES.EAST_WEST_YELLOW;
+
+        case SIGNAL_PHASES.EAST_WEST_YELLOW:
+            return SIGNAL_PHASES.NORTH_SOUTH_GREEN;
+
+        default:
+            return SIGNAL_PHASES.NORTH_SOUTH_GREEN;
+    }
+}

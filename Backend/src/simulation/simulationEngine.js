@@ -1,1108 +1,881 @@
 // Backend/src/simulation/simulationEngine.js
 
-import {
-  ROAD_NODES,
-  getNodePosition,
-  getDistanceBetweenNodes,
-  FULL_EMERGENCY_ROUTE,
-  AMBULANCE_START_NODE,
-  CLIENT_NODE,
-  HOSPITAL_NODE,
-} from "./roadNetwork.js";
-
-import {
-  getMovementSignalState,
-} from "./signalEngine.js";
-
-import {
-  createGreenCorridorState,
-  updateGreenCorridor,
-} from "./greenCorridor.js";
-
-import {
-  createSignalControllers,
-  updateSignalControllers,
-} from "./signalController.js";
-
-
-// ==================================================
-// CONFIGURATION
-// ==================================================
-
-export const AMBULANCE_MIN_SPEED = 6;
-export const AMBULANCE_MAX_SPEED = 12;
-export const AMBULANCE_INITIAL_SPEED = 8;
-export const AMBULANCE_ACCELERATION = 3.5;
-
-export const TRAFFIC_MIN_SPEED = 3.5;
-export const TRAFFIC_MAX_SPEED = 7;
-
-export const USER_ARRIVAL_CONFIRMATION_DURATION = 1.0;
-export const PICKUP_DURATION = 2.5;
-export const HOSPITAL_COMPLETION_DURATION = 2.5;
-
-
-// ==================================================
-// HELPERS
-// ==================================================
-
-function clamp(value, min, max) {
-  return Math.max(
-    min,
-    Math.min(max, value)
-  );
-}
-
-
-function moveTowards(
-  current,
-  target,
-  maxDelta
-) {
-  if (current < target) {
-    return Math.min(
-      current + maxDelta,
-      target
-    );
-  }
-
-  if (current > target) {
-    return Math.max(
-      current - maxDelta,
-      target
-    );
-  }
-
-  return current;
-}
-
-
-function calculateTargetSpeed(
-  simulationTime,
-  routeIndex
-) {
-  const wave1 =
-    Math.sin(
-      simulationTime * 0.45 +
-      routeIndex * 1.3
-    );
-
-  const wave2 =
-    Math.sin(
-      simulationTime * 0.9 +
-      routeIndex * 0.7
-    );
-
-  const target =
-    8.5 +
-    wave1 * 2.2 +
-    wave2 * 0.8;
-
-  return clamp(
-    target,
-    AMBULANCE_MIN_SPEED,
-    AMBULANCE_MAX_SPEED
-  );
-}
+export const SIMULATION_STATUS = {
+    STOPPED: "STOPPED",
+    RUNNING: "RUNNING",
+    PAUSED: "PAUSED"
+};
 
 
-// ==================================================
-// POSITION INTERPOLATION
-// ==================================================
+export class SimulationEngine {
 
-export function getInterpolatedPosition(
-  fromNodeId,
-  toNodeId,
-  progress
-) {
-  const from =
-    getNodePosition(fromNodeId);
+    constructor(options = {}) {
 
-  const to =
-    getNodePosition(toNodeId);
+        this.vehicleEngine =
+            options.vehicleEngine || null;
 
-  if (!from || !to) {
-    return {
-      x: 0,
-      z: 0,
-    };
-  }
+        this.ambulanceEngine =
+            options.ambulanceEngine || null;
 
-  const safeProgress =
-    clamp(
-      progress,
-      0,
-      1
-    );
+        this.signals =
+            options.signals || new Map();
 
-  return {
-    x:
-      from.x +
-      (to.x - from.x) *
-      safeProgress,
+        this.etaEngine =
+            options.etaEngine || null;
 
-    z:
-      from.z +
-      (to.z - from.z) *
-      safeProgress,
-  };
-}
+        this.effectiveETAEngine =
+            options.effectiveETAEngine || null;
 
+        this.greenCorridorEngine =
+            options.greenCorridorEngine || null;
 
-// ==================================================
-// AMBULANCE STATE
-// ==================================================
+        this.corridorSignalCoordinator =
+            options.corridorSignalCoordinator || null;
 
-export function createAmbulanceState() {
-  return {
-    id: "AMB-01",
 
-    driverId: "DRIVER-001",
+        // --------------------------------------------------
+        // CLOCK
+        // --------------------------------------------------
 
-    currentNode:
-      AMBULANCE_START_NODE,
+        this.simulationTime = 0;
 
-    nextNode:
-      FULL_EMERGENCY_ROUTE[1],
+        this.tickCount = 0;
 
-    route:
-      [...FULL_EMERGENCY_ROUTE],
+        this.status =
+            SIMULATION_STATUS.STOPPED;
 
-    routeIndex: 0,
+        this.timeScale =
+            options.timeScale || 1;
 
-    progress: 0,
+        this.defaultDeltaTime =
+            options.defaultDeltaTime || 1;
 
-    position:
-      getInterpolatedPosition(
-        AMBULANCE_START_NODE,
-        FULL_EMERGENCY_ROUTE[1],
-        0
-      ),
-
-    speed:
-      AMBULANCE_INITIAL_SPEED,
-
-    targetSpeed:
-      AMBULANCE_INITIAL_SPEED,
-
-    status:
-      "EN_ROUTE_TO_USER",
-
-    waitingForSignal:
-      null,
-
-    signalWaitSeconds:
-      0,
-
-    userArrivalTimer:
-      0,
-
-    pickupTimer:
-      0,
-
-    hospitalTimer:
-      0,
-
-    passengerOnboard:
-      false,
-
-    completed:
-      false,
-  };
-}
-
-
-// ==================================================
-// NORMAL TRAFFIC
-// ==================================================
-
-function createTrafficVehicle(
-  id,
-  route,
-  speed
-) {
-  return {
-    id,
-
-    route:
-      [...route],
-
-    routeIndex: 0,
-
-    currentNode:
-      route[0],
-
-    nextNode:
-      route[1],
-
-    progress: 0,
-
-    speed,
-
-    position:
-      getInterpolatedPosition(
-        route[0],
-        route[1],
-        0
-      ),
-
-    waitingForSignal:
-      null,
-
-    active:
-      true,
-  };
-}
-
-
-// ==================================================
-// CREATE TRAFFIC VEHICLES
-// ==================================================
-
-export function createTrafficVehicles() {
-  return [
-    createTrafficVehicle(
-      "CAR-01",
-      [
-        "A1",
-        "A2",
-        "A3",
-        "A4",
-      ],
-      5
-    ),
-
-    createTrafficVehicle(
-      "CAR-02",
-      [
-        "B4",
-        "B3",
-        "B2",
-        "B1",
-      ],
-      4.5
-    ),
-
-    createTrafficVehicle(
-      "CAR-03",
-      [
-        "C1",
-        "C2",
-        "C3",
-        "C4",
-      ],
-      5.5
-    ),
-
-    createTrafficVehicle(
-      "CAR-04",
-      [
-        "D4",
-        "D3",
-        "D2",
-        "D1",
-      ],
-      4
-    ),
-
-    createTrafficVehicle(
-      "CAR-05",
-      [
-        "A1",
-        "B1",
-        "C1",
-        "D1",
-      ],
-      4.5
-    ),
-
-    createTrafficVehicle(
-      "CAR-06",
-      [
-        "A3",
-        "B3",
-        "C3",
-        "D3",
-      ],
-      5
-    ),
-  ];
-}
-
-
-// ==================================================
-// CHECK SIGNAL FOR VEHICLE
-// ==================================================
-
-function canVehicleMoveThroughSignal(
-  currentNode,
-  nextNode,
-  simulationTime,
-  corridorState,
-  signalControllers
-) {
-  const signalState =
-    getMovementSignalState(
-      nextNode,
-      currentNode,
-      nextNode,
-      simulationTime,
-      corridorState,
-      signalControllers
-    );
-
-  return signalState === "GREEN";
-}
-
-
-// ==================================================
-// UPDATE TRAFFIC VEHICLE
-// ==================================================
-
-function updateTrafficVehicle(
-  vehicle,
-  deltaSeconds,
-  simulationTime,
-  corridorState,
-  signalControllers
-) {
-  if (
-    !vehicle.active ||
-    !vehicle.nextNode
-  ) {
-    return vehicle;
-  }
-
-  const canMove =
-    canVehicleMoveThroughSignal(
-      vehicle.currentNode,
-      vehicle.nextNode,
-      simulationTime,
-      corridorState,
-      signalControllers
-    );
-
-  // -----------------------------------------------
-  // WAIT AT RED / YELLOW
-  // -----------------------------------------------
-
-  if (
-    !canMove &&
-    vehicle.progress <= 0
-  ) {
-    vehicle.waitingForSignal =
-      vehicle.nextNode;
-
-    return vehicle;
-  }
-
-  vehicle.waitingForSignal =
-    null;
-
-  // -----------------------------------------------
-  // DISTANCE
-  // -----------------------------------------------
-
-  const distance =
-    getDistanceBetweenNodes(
-      vehicle.currentNode,
-      vehicle.nextNode
-    );
-
-  if (distance <= 0) {
-    return vehicle;
-  }
-
-  // -----------------------------------------------
-  // MOVE
-  // -----------------------------------------------
-
-  const movement =
-    vehicle.speed *
-    deltaSeconds;
-
-  vehicle.progress +=
-    movement / distance;
-
-  vehicle.position =
-    getInterpolatedPosition(
-      vehicle.currentNode,
-      vehicle.nextNode,
-      vehicle.progress
-    );
-
-  // -----------------------------------------------
-  // NODE REACHED
-  // -----------------------------------------------
-
-  if (
-    vehicle.progress >= 1
-  ) {
-    vehicle.routeIndex += 1;
-
-    if (
-      vehicle.routeIndex >=
-      vehicle.route.length - 1
-    ) {
-      // Loop traffic back to the start
-      // of its route.
-      vehicle.routeIndex = 0;
+
+        // --------------------------------------------------
+        // AMBULANCE
+        // --------------------------------------------------
+
+        this.activeAmbulanceId =
+            options.activeAmbulanceId || null;
+
+
+        // --------------------------------------------------
+        // LAST STATES
+        // --------------------------------------------------
+
+        this.lastETA =
+            null;
+
+        this.lastGreenCorridor =
+            null;
+
+        this.lastSignalControl =
+            null;
+
     }
 
-    vehicle.currentNode =
-      vehicle.route[
-        vehicle.routeIndex
-      ];
 
-    vehicle.nextNode =
-      vehicle.route[
-        vehicle.routeIndex + 1
-      ];
+    // --------------------------------------------------
+    // START
+    // --------------------------------------------------
 
-    vehicle.progress = 0;
+    start() {
 
-    vehicle.position =
-      getInterpolatedPosition(
-        vehicle.currentNode,
-        vehicle.nextNode,
-        0
-      );
-  }
+        if (
+            this.status ===
+            SIMULATION_STATUS.RUNNING
+        ) {
 
-  return vehicle;
-}
+            return {
 
+                success: false,
 
-// ==================================================
-// UPDATE ALL TRAFFIC
-// ==================================================
+                reason:
+                    "SIMULATION_ALREADY_RUNNING"
 
-function updateTraffic(
-  traffic,
-  deltaSeconds,
-  simulationTime,
-  corridorState,
-  signalControllers
-) {
-  return traffic.map(
-    (vehicle) =>
-      updateTrafficVehicle(
-        {
-          ...vehicle,
-        },
-        deltaSeconds,
-        simulationTime,
-        corridorState,
-        signalControllers
-      )
-  );
-}
+            };
+
+        }
 
 
-// ==================================================
-// NODE POSITION OBJECT
-// ==================================================
-
-function getNodePositionObject(nodeId) {
-  const node =
-    ROAD_NODES[nodeId];
-
-  if (!node) {
-    return {
-      x: 0,
-      z: 0,
-    };
-  }
-
-  return {
-    x: node.position.x,
-    z: node.position.z,
-  };
-}
+        this.status =
+            SIMULATION_STATUS.RUNNING;
 
 
-// ==================================================
-// ADVANCE AMBULANCE ROUTE
-// ==================================================
+        return {
 
-function advanceAmbulanceRoute(
-  ambulance
-) {
-  ambulance.routeIndex += 1;
+            success: true,
 
-  // -----------------------------------------------
-  // ARRIVED AT USER
-  // -----------------------------------------------
+            status:
+                this.status,
 
-  if (
-    ambulance.route[
-      ambulance.routeIndex
-    ] === CLIENT_NODE
-  ) {
-    ambulance.currentNode =
-      CLIENT_NODE;
+            simulationTime:
+                this.simulationTime
 
-    ambulance.nextNode =
-      FULL_EMERGENCY_ROUTE[
-        ambulance.routeIndex + 1
-      ] || null;
+        };
 
-    ambulance.progress = 0;
-
-    ambulance.position =
-      getNodePositionObject(
-        CLIENT_NODE
-      );
-
-    ambulance.status =
-      "ARRIVED_AT_USER";
-
-    ambulance.speed = 0;
-
-    ambulance.targetSpeed = 0;
-
-    ambulance.waitingForSignal =
-      null;
-
-    ambulance.signalWaitSeconds =
-      0;
-
-    ambulance.userArrivalTimer =
-      0;
-
-    ambulance.pickupTimer =
-      0;
-
-    return ambulance;
-  }
-
-
-  // -----------------------------------------------
-  // ARRIVED AT HOSPITAL
-  // -----------------------------------------------
-
-  if (
-    ambulance.route[
-      ambulance.routeIndex
-    ] === HOSPITAL_NODE
-  ) {
-    ambulance.currentNode =
-      HOSPITAL_NODE;
-
-    ambulance.nextNode =
-      null;
-
-    ambulance.progress = 0;
-
-    ambulance.position =
-      getNodePositionObject(
-        HOSPITAL_NODE
-      );
-
-    ambulance.status =
-      "ARRIVED_AT_HOSPITAL";
-
-    ambulance.speed = 0;
-
-    ambulance.targetSpeed = 0;
-
-    ambulance.waitingForSignal =
-      null;
-
-    ambulance.signalWaitSeconds =
-      0;
-
-    ambulance.hospitalTimer =
-      0;
-
-    return ambulance;
-  }
-
-
-  // -----------------------------------------------
-  // NORMAL NEXT SEGMENT
-  // -----------------------------------------------
-
-  ambulance.currentNode =
-    ambulance.route[
-      ambulance.routeIndex
-    ];
-
-  ambulance.nextNode =
-    ambulance.route[
-      ambulance.routeIndex + 1
-    ];
-
-  ambulance.progress = 0;
-
-  ambulance.position =
-    getInterpolatedPosition(
-      ambulance.currentNode,
-      ambulance.nextNode,
-      0
-    );
-
-  return ambulance;
-}
-
-
-// ==================================================
-// UPDATE AMBULANCE
-// ==================================================
-
-function updateAmbulance(
-  ambulance,
-  deltaSeconds,
-  simulationTime,
-  corridorState,
-  signalControllers
-) {
-  // -----------------------------------------------
-  // COMPLETED
-  // -----------------------------------------------
-
-  if (ambulance.completed) {
-    return ambulance;
-  }
-
-
-  // -----------------------------------------------
-  // ARRIVED AT HOSPITAL
-  // -----------------------------------------------
-
-  if (
-    ambulance.status ===
-    "ARRIVED_AT_HOSPITAL"
-  ) {
-    ambulance.hospitalTimer +=
-      deltaSeconds;
-
-    ambulance.speed = 0;
-
-    ambulance.targetSpeed = 0;
-
-    if (
-      ambulance.hospitalTimer >=
-      HOSPITAL_COMPLETION_DURATION
-    ) {
-      ambulance.hospitalTimer = 0;
-
-      ambulance.status =
-        "COMPLETED";
-
-      ambulance.completed =
-        true;
     }
 
-    return ambulance;
-  }
+
+    // --------------------------------------------------
+    // PAUSE
+    // --------------------------------------------------
+
+    pause() {
+
+        if (
+            this.status !==
+            SIMULATION_STATUS.RUNNING
+        ) {
+
+            return {
+
+                success: false,
+
+                reason:
+                    "SIMULATION_NOT_RUNNING"
+
+            };
+
+        }
 
 
-  // -----------------------------------------------
-  // ARRIVED AT USER
-  // -----------------------------------------------
+        this.status =
+            SIMULATION_STATUS.PAUSED;
 
-  if (
-    ambulance.status ===
-    "ARRIVED_AT_USER"
-  ) {
-    ambulance.userArrivalTimer +=
-      deltaSeconds;
 
-    ambulance.speed = 0;
+        return {
 
-    ambulance.targetSpeed = 0;
+            success: true,
 
-    if (
-      ambulance.userArrivalTimer >=
-      USER_ARRIVAL_CONFIRMATION_DURATION
-    ) {
-      ambulance.userArrivalTimer = 0;
+            status:
+                this.status
 
-      ambulance.pickupTimer = 0;
+        };
 
-      ambulance.status =
-        "PATIENT_PICKUP";
     }
 
-    return ambulance;
-  }
+
+    // --------------------------------------------------
+    // RESUME
+    // --------------------------------------------------
+
+    resume() {
+
+        if (
+            this.status !==
+            SIMULATION_STATUS.PAUSED
+        ) {
+
+            return {
+
+                success: false,
+
+                reason:
+                    "SIMULATION_NOT_PAUSED"
+
+            };
+
+        }
 
 
-  // -----------------------------------------------
-  // PATIENT PICKUP
-  // -----------------------------------------------
+        this.status =
+            SIMULATION_STATUS.RUNNING;
 
-  if (
-    ambulance.status ===
-    "PATIENT_PICKUP"
-  ) {
-    ambulance.pickupTimer +=
-      deltaSeconds;
 
-    ambulance.speed = 0;
+        return {
 
-    ambulance.targetSpeed = 0;
+            success: true,
 
-    if (
-      ambulance.pickupTimer >=
-      PICKUP_DURATION
-    ) {
-      ambulance.pickupTimer = 0;
+            status:
+                this.status
 
-      ambulance.passengerOnboard =
-        true;
+        };
 
-      ambulance.status =
-        "EN_ROUTE_TO_HOSPITAL";
-
-      ambulance.currentNode =
-        CLIENT_NODE;
-
-      ambulance.routeIndex =
-        ambulance.route.indexOf(
-          CLIENT_NODE
-        );
-
-      ambulance.nextNode =
-        ambulance.route[
-          ambulance.routeIndex + 1
-        ];
-
-      ambulance.progress = 0;
-
-      ambulance.position =
-        getInterpolatedPosition(
-          ambulance.currentNode,
-          ambulance.nextNode,
-          0
-        );
-
-      ambulance.targetSpeed =
-        AMBULANCE_INITIAL_SPEED;
-
-      ambulance.speed =
-        AMBULANCE_INITIAL_SPEED;
-
-      ambulance.waitingForSignal =
-        null;
-
-      ambulance.signalWaitSeconds =
-        0;
     }
 
-    return ambulance;
-  }
 
+    // --------------------------------------------------
+    // STOP
+    // --------------------------------------------------
 
-  // -----------------------------------------------
-  // NO NEXT NODE
-  // -----------------------------------------------
+    stop() {
 
-  if (!ambulance.nextNode) {
-    return ambulance;
-  }
+        this.status =
+            SIMULATION_STATUS.STOPPED;
 
 
-  // -----------------------------------------------
-  // CONTROLLED SIGNAL
-  // -----------------------------------------------
+        return {
 
-  const signalState =
-    getMovementSignalState(
-      ambulance.nextNode,
-      ambulance.currentNode,
-      ambulance.nextNode,
-      simulationTime,
-      corridorState,
-      signalControllers
-    );
+            success: true,
 
+            status:
+                this.status,
 
-  // -----------------------------------------------
-// WAIT AT RED / YELLOW
-// -----------------------------------------------
+            simulationTime:
+                this.simulationTime
 
-if (
-  signalState !== "GREEN" &&
-  ambulance.progress <= 0
-) {
-  ambulance.waitingForSignal =
-    ambulance.nextNode;
+        };
 
-  ambulance.signalWaitSeconds +=
-    deltaSeconds;
+    }
 
-  ambulance.speed = 0;
 
-  return ambulance;
-}
+    // --------------------------------------------------
+    // SET ACTIVE AMBULANCE
+    // --------------------------------------------------
 
+    setActiveAmbulance(
+        ambulanceId
+    ) {
 
-// -----------------------------------------------
-// SIGNAL TURNED GREEN
-// -----------------------------------------------
-// Ambulance is no longer waiting at the signal,
-// so reset the accumulated waiting time.
+        if (
+            !this.ambulanceEngine
+        ) {
 
-ambulance.waitingForSignal =
-  null;
+            return {
 
-ambulance.signalWaitSeconds =
-  0;
+                success: false,
 
+                reason:
+                    "NO_AMBULANCE_ENGINE"
 
-// -----------------------------------------------
-// VARIABLE SPEED
-// -----------------------------------------------
+            };
 
-ambulance.targetSpeed =
-  calculateTargetSpeed(
-    simulationTime,
-    ambulance.routeIndex
-  );
+        }
 
 
-  
+        if (
+            typeof this.ambulanceEngine
+                .getAmbulance !==
+            "function"
+        ) {
 
-  ambulance.speed =
-    moveTowards(
-      ambulance.speed,
-      ambulance.targetSpeed,
-      AMBULANCE_ACCELERATION *
-        deltaSeconds
-    );
+            return {
 
+                success: false,
 
-  // -----------------------------------------------
-  // MOVE
-  // -----------------------------------------------
+                reason:
+                    "AMBULANCE_LOOKUP_NOT_SUPPORTED"
 
-  const distance =
-    getDistanceBetweenNodes(
-      ambulance.currentNode,
-      ambulance.nextNode
-    );
+            };
 
-  if (distance <= 0) {
-    return ambulance;
-  }
+        }
 
-  const movement =
-    ambulance.speed *
-    deltaSeconds;
 
-  ambulance.progress +=
-    movement / distance;
+        const ambulance =
+            this.ambulanceEngine
+                .getAmbulance(
+                    ambulanceId
+                );
 
 
-  // -----------------------------------------------
-  // POSITION
-  // -----------------------------------------------
+        if (!ambulance) {
 
-  ambulance.position =
-    getInterpolatedPosition(
-      ambulance.currentNode,
-      ambulance.nextNode,
-      ambulance.progress
-    );
+            return {
 
+                success: false,
 
-  // -----------------------------------------------
-  // NODE REACHED
-  // -----------------------------------------------
+                reason:
+                    "AMBULANCE_NOT_FOUND"
 
-  if (
-    ambulance.progress >= 1
-  ) {
-    advanceAmbulanceRoute(
-      ambulance
-    );
-  }
+            };
 
-  return ambulance;
-}
+        }
 
 
-// ==================================================
-// CREATE COMPLETE SIMULATION
-// ==================================================
+        this.activeAmbulanceId =
+            ambulanceId;
 
-export function createSimulation() {
-  return {
-    running: true,
 
-    completed: false,
+        return {
 
-    simulationTime: 0,
+            success: true,
 
-    ambulance:
-      createAmbulanceState(),
+            ambulanceId
 
-    traffic:
-      createTrafficVehicles(),
+        };
 
-    greenCorridor:
-      createGreenCorridorState(),
+    }
 
-    signalControllers:
-      createSignalControllers(),
 
-    lastEvent:
-      "SIMULATION_STARTED",
-  };
-}
+    // --------------------------------------------------
+    // GET ACTIVE AMBULANCE
+    // --------------------------------------------------
 
+    getActiveAmbulance() {
 
-// ==================================================
-// UPDATE SIMULATION
-// ==================================================
+        if (
+            !this.ambulanceEngine
+        ) {
 
-export function updateSimulation(
-  simulation,
-  deltaSeconds
-) {
-  if (
-    !simulation.running ||
-    simulation.completed
-  ) {
-    return simulation;
-  }
+            return null;
 
-  const safeDelta =
-    Math.max(
-      0,
-      Math.min(
-        deltaSeconds,
-        0.25
-      )
-    );
+        }
 
 
-  // -----------------------------------------------
-  // CLOCK
-  // -----------------------------------------------
+        // ----------------------------------------------
+        // Explicit ambulance ID
+        // ----------------------------------------------
 
-  simulation.simulationTime +=
-    safeDelta;
+        if (
+            this.activeAmbulanceId &&
+            typeof this.ambulanceEngine
+                .getAmbulance ===
+            "function"
+        ) {
 
+            return this.ambulanceEngine
+                .getAmbulance(
+                    this.activeAmbulanceId
+                );
 
-  // -----------------------------------------------
-  // GREEN CORRIDOR REQUEST
-  // -----------------------------------------------
+        }
 
-  simulation.greenCorridor =
-    updateGreenCorridor(
-      simulation.greenCorridor,
-      simulation.ambulance,
-      simulation.simulationTime
-    );
 
+        // ----------------------------------------------
+        // Automatically use first ambulance
+        // ----------------------------------------------
 
-  // -----------------------------------------------
-  // APPLY SIGNAL CONTROLLER CHANGES
-  // -----------------------------------------------
-  // Controller state must be updated BEFORE
-  // vehicle movement so the ambulance and traffic
-  // read the actual controlled signal state.
+        if (
+            this.ambulanceEngine
+                .ambulances instanceof Map
+        ) {
 
-  simulation.signalControllers =
-    updateSignalControllers(
-      simulation.signalControllers,
-      simulation.greenCorridor,
-      safeDelta
-    );
+            const firstAmbulance =
+                this.ambulanceEngine
+                    .ambulances
+                    .values()
+                    .next()
+                    .value;
 
 
-  // -----------------------------------------------
-  // AMBULANCE
-  // -----------------------------------------------
+            return firstAmbulance ||
+                null;
 
-  const previousStatus =
-    simulation.ambulance.status;
+        }
 
-  simulation.ambulance =
-    updateAmbulance(
-      {
-        ...simulation.ambulance,
-      },
 
-      safeDelta,
+        return null;
 
-      simulation.simulationTime,
+    }
 
-      simulation.greenCorridor,
 
-      simulation.signalControllers
-    );
+    // --------------------------------------------------
+    // UPDATE SIGNALS
+    // --------------------------------------------------
 
+    updateSignals(
+        deltaTime
+    ) {
 
-  // -----------------------------------------------
-  // NORMAL TRAFFIC
-  // -----------------------------------------------
+        for (
+            const signal
+            of this.signals.values()
+        ) {
 
-  simulation.traffic =
+            if (
+                signal &&
+                typeof signal.tick ===
+                "function"
+            ) {
+
+                signal.tick(
+                    deltaTime
+                );
+
+            }
+
+        }
+
+    }
+
+
+    // --------------------------------------------------
+    // UPDATE TRAFFIC
+    // --------------------------------------------------
+
     updateTraffic(
-      simulation.traffic,
+        deltaTime
+    ) {
 
-      safeDelta,
+        if (
+            !this.vehicleEngine
+        ) {
 
-      simulation.simulationTime,
+            return;
 
-      simulation.greenCorridor,
-
-      simulation.signalControllers
-    );
-
-
-  // -----------------------------------------------
-  // RECALCULATE CORRIDOR
-  // -----------------------------------------------
-  // The ambulance may have moved to another route
-  // segment. Recalculate the planning state for
-  // telemetry and the next controller update.
-  //
-  // We intentionally do NOT update signal controllers
-  // a second time in this same tick because that would
-  // decrement the controller timers twice.
-
-  simulation.greenCorridor =
-    updateGreenCorridor(
-      simulation.greenCorridor,
-      simulation.ambulance,
-      simulation.simulationTime
-    );
+        }
 
 
-  // -----------------------------------------------
-  // STATUS EVENT
-  // -----------------------------------------------
+        this.vehicleEngine.update(
+            deltaTime
+        );
 
-  if (
-    previousStatus !==
-    simulation.ambulance.status
-  ) {
-    simulation.lastEvent =
-      simulation.ambulance.status;
-  }
+    }
 
 
-  // -----------------------------------------------
-  // COMPLETED
-  // -----------------------------------------------
+    // --------------------------------------------------
+    // UPDATE AMBULANCE
+    // --------------------------------------------------
 
-  if (
-    simulation.ambulance.status ===
-    "COMPLETED"
-  ) {
-    simulation.running = false;
+    updateAmbulance(
+        deltaTime
+    ) {
 
-    simulation.completed = true;
+        if (
+            !this.ambulanceEngine
+        ) {
 
-    simulation.lastEvent =
-      "EMERGENCY_COMPLETED";
-  }
+            return;
+
+        }
 
 
-  return simulation;
+        this.ambulanceEngine.update(
+            deltaTime
+        );
+
+    }
+
+
+    // --------------------------------------------------
+    // CALCULATE ETA
+    // --------------------------------------------------
+
+    calculateETA() {
+
+        if (
+            !this.effectiveETAEngine
+        ) {
+
+            this.lastETA =
+                null;
+
+            return null;
+
+        }
+
+
+        const ambulance =
+            this.getActiveAmbulance();
+
+
+        if (
+            !ambulance
+        ) {
+
+            this.lastETA =
+                null;
+
+            return null;
+
+        }
+
+
+        /*
+         * Only calculate ETA while the ambulance
+         * has an actual route to follow.
+         */
+
+        if (
+            !Array.isArray(
+                ambulance.route
+            ) ||
+            ambulance.route.length < 2
+        ) {
+
+            this.lastETA =
+                null;
+
+            return null;
+
+        }
+
+
+        this.lastETA =
+            this.effectiveETAEngine
+                .getSnapshot(
+                    ambulance
+                );
+
+
+        return this.lastETA;
+
+    }
+
+
+    // --------------------------------------------------
+    // UPDATE GREEN CORRIDOR
+    // --------------------------------------------------
+
+    updateGreenCorridor() {
+
+        if (
+            !this.greenCorridorEngine ||
+            !this.lastETA
+        ) {
+
+            this.lastGreenCorridor =
+                null;
+
+            return null;
+
+        }
+
+
+        const ambulance =
+            this.getActiveAmbulance();
+
+
+        if (
+            !ambulance
+        ) {
+
+            this.lastGreenCorridor =
+                null;
+
+            return null;
+
+        }
+
+
+        const currentNode =
+            ambulance.currentNode ||
+            null;
+
+
+        this.lastGreenCorridor =
+            this.greenCorridorEngine
+                .getSnapshot(
+
+                    this.lastETA,
+
+                    currentNode
+
+                );
+
+
+        return this.lastGreenCorridor;
+
+    }
+
+
+    // --------------------------------------------------
+    // APPLY SIGNAL PRIORITY
+    // --------------------------------------------------
+
+    applySignalPriority() {
+
+        if (
+            !this.corridorSignalCoordinator ||
+            !this.lastGreenCorridor
+        ) {
+
+            this.lastSignalControl =
+                null;
+
+            return null;
+
+        }
+
+
+        this.lastSignalControl =
+            this.corridorSignalCoordinator
+                .applyCorridor(
+                    this.lastGreenCorridor
+                );
+
+
+        return this.lastSignalControl;
+
+    }
+
+
+    // --------------------------------------------------
+    // UPDATE ONE TICK
+    // --------------------------------------------------
+
+    update(
+        deltaTime =
+            this.defaultDeltaTime
+    ) {
+
+        if (
+            this.status !==
+            SIMULATION_STATUS.RUNNING
+        ) {
+
+            return this.getSnapshot();
+
+        }
+
+
+        if (
+            !Number.isFinite(deltaTime) ||
+            deltaTime <= 0
+        ) {
+
+            throw new Error(
+                "deltaTime must be a positive number."
+            );
+
+        }
+
+
+        const scaledDeltaTime =
+            deltaTime *
+            this.timeScale;
+
+
+        // ----------------------------------------------
+        // 1. NORMAL SIGNAL CLOCK
+        // ----------------------------------------------
+
+        this.updateSignals(
+            scaledDeltaTime
+        );
+
+
+        // ----------------------------------------------
+        // 2. TRAFFIC
+        // ----------------------------------------------
+
+        this.updateTraffic(
+            scaledDeltaTime
+        );
+
+
+        // ----------------------------------------------
+        // 3. AMBULANCE
+        // ----------------------------------------------
+
+        this.updateAmbulance(
+            scaledDeltaTime
+        );
+
+
+        // ----------------------------------------------
+        // 4. SIMULATION CLOCK
+        // ----------------------------------------------
+
+        this.simulationTime +=
+            scaledDeltaTime;
+
+        this.tickCount++;
+
+
+        // ----------------------------------------------
+        // 5. ETA
+        // ----------------------------------------------
+
+        this.calculateETA();
+
+
+        // ----------------------------------------------
+        // 6. GREEN CORRIDOR
+        // ----------------------------------------------
+
+        this.updateGreenCorridor();
+
+
+        // ----------------------------------------------
+        // 7. SIGNAL PRIORITY
+        // ----------------------------------------------
+
+        this.applySignalPriority();
+
+
+        return this.getSnapshot();
+
+    }
+
+
+    // --------------------------------------------------
+    // GET VEHICLE STATES
+    // --------------------------------------------------
+
+    getVehicleStates() {
+
+        if (
+            !this.vehicleEngine
+        ) {
+
+            return [];
+
+        }
+
+
+        if (
+            typeof this.vehicleEngine
+                .getStates ===
+            "function"
+        ) {
+
+            return this.vehicleEngine
+                .getStates();
+
+        }
+
+
+        return [];
+
+    }
+
+
+    // --------------------------------------------------
+    // GET AMBULANCE STATE
+    // --------------------------------------------------
+
+    getAmbulanceState() {
+
+        const ambulance =
+            this.getActiveAmbulance();
+
+
+        if (
+            ambulance &&
+            typeof ambulance.getState ===
+            "function"
+        ) {
+
+            return ambulance.getState();
+
+        }
+
+
+        if (
+            this.ambulanceEngine &&
+            typeof this.ambulanceEngine
+                .getStates ===
+            "function"
+        ) {
+
+            const states =
+                this.ambulanceEngine
+                    .getStates();
+
+
+            return states.length > 0
+                ? states[0]
+                : null;
+
+        }
+
+
+        return null;
+
+    }
+
+
+    // --------------------------------------------------
+    // GET ALL AMBULANCE STATES
+    // --------------------------------------------------
+
+    getAmbulanceStates() {
+
+        if (
+            !this.ambulanceEngine
+        ) {
+
+            return [];
+
+        }
+
+
+        if (
+            typeof this.ambulanceEngine
+                .getStates ===
+            "function"
+        ) {
+
+            return this.ambulanceEngine
+                .getStates();
+
+        }
+
+
+        return [];
+
+    }
+
+
+    // --------------------------------------------------
+    // GET SIGNAL STATES
+    // --------------------------------------------------
+
+    getSignalStates() {
+
+        const states = [];
+
+
+        for (
+            const signal
+            of this.signals.values()
+        ) {
+
+            if (
+                signal &&
+                typeof signal.getState ===
+                "function"
+            ) {
+
+                states.push(
+                    signal.getState()
+                );
+
+            }
+
+        }
+
+
+        return states;
+
+    }
+
+
+    // --------------------------------------------------
+    // GET SNAPSHOT
+    // --------------------------------------------------
+
+    getSnapshot() {
+
+        return {
+
+            simulationTime:
+                this.simulationTime,
+
+            tickCount:
+                this.tickCount,
+
+            status:
+                this.status,
+
+            activeAmbulanceId:
+                this.activeAmbulanceId,
+
+            vehicles:
+                this.getVehicleStates(),
+
+            ambulance:
+                this.getAmbulanceState(),
+
+            ambulances:
+                this.getAmbulanceStates(),
+
+            signals:
+                this.getSignalStates(),
+
+            eta:
+                this.lastETA,
+
+            greenCorridor:
+                this.lastGreenCorridor,
+
+            signalControl:
+                this.lastSignalControl
+
+        };
+
+    }
+
 }
