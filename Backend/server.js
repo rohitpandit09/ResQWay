@@ -4,11 +4,13 @@ import cors from "cors";
 import { Server } from "socket.io";
 import "dotenv/config";
 
-import emergencyRoutes from "./src/emergency/emergencyRoutes.js";
-import groqRoutes from "./src/ai/groqRoutes.js";
 import {
-  registerSimulationSocket,
+    registerSimulationSocket,
 } from "./src/sockets/simulationSocket.js";
+
+import emergencyRoutes
+    from "./src/emergency/emergencyRoutes.js";
+
 
 const app = express();
 
@@ -17,19 +19,8 @@ const app = express();
 // HTTP SERVER
 // ==================================================
 
-const server = http.createServer(app);
-
-
-// ==================================================
-// SOCKET.IO
-// ==================================================
-
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST", "DELETE"],
-  },
-});
+const server =
+    http.createServer(app);
 
 
 // ==================================================
@@ -37,34 +28,50 @@ const io = new Server(server, {
 // ==================================================
 
 app.use(
-  cors({
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST", "DELETE"],
-    credentials: true,
-  })
+    cors({
+        origin: "http://localhost:5173",
+        methods: [
+            "GET",
+            "POST",
+            "DELETE"
+        ],
+        credentials: true,
+    })
 );
+
+
 
 
 // ==================================================
 // BODY PARSER
 // ==================================================
 
-app.use(express.json());
+app.use(
+    express.json()
+);
 
 
 // ==================================================
-// API ROUTES
+// SOCKET.IO
 // ==================================================
 
-app.use(
-  "/api/emergencies",
-  emergencyRoutes
-);
+const io =
+    new Server(server, {
 
-app.use(
-  "/api/groq",
-  groqRoutes
-);
+        cors: {
+
+            origin:
+                "http://localhost:5173",
+
+            methods: [
+                "GET",
+                "POST",
+                "DELETE"
+            ],
+
+        },
+
+    });
 
 
 // ==================================================
@@ -72,13 +79,25 @@ app.use(
 // ==================================================
 
 app.get(
-  "/api/health",
-  (req, res) => {
-    res.json({
-      success: true,
-      message: "ResQWay backend is running",
-    });
-  }
+    "/api/health",
+    (req, res) => {
+
+        res.json({
+
+            success:
+                true,
+
+            message:
+                "ResQWay backend is running",
+
+        });
+
+    }
+);
+
+app.use(
+    "/api/emergencies",
+    emergencyRoutes
 );
 
 
@@ -93,13 +112,17 @@ registerSimulationSocket(io);
 // START SERVER
 // ==================================================
 
-const PORT = 3000;
+const PORT =
+    process.env.PORT || 3000;
+
 
 server.listen(
-  PORT,
-  () => {
-    console.log(
-      `ResQWay backend running on http://localhost:${PORT}`
-    );
-  }
+    PORT,
+    () => {
+
+        console.log(
+            `🚑 ResQWay backend running on http://localhost:${PORT}`
+        );
+
+    }
 );

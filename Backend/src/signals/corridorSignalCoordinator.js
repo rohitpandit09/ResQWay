@@ -9,6 +9,10 @@ import {
 } from "./signalPriorityController.js";
 
 
+// ==================================================
+// CORRIDOR SIGNAL COORDINATOR
+// ==================================================
+
 export class CorridorSignalCoordinator {
 
     constructor(options = {}) {
@@ -27,12 +31,15 @@ export class CorridorSignalCoordinator {
         this.activeIntersection =
             null;
 
+        this.lastControlState =
+            null;
+
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // REGISTER PRIORITY CONTROLLER
-    // --------------------------------------------------
+    // ==================================================
 
     registerPriorityController(
         intersectionId,
@@ -58,9 +65,9 @@ export class CorridorSignalCoordinator {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET PRIORITY CONTROLLER
-    // --------------------------------------------------
+    // ==================================================
 
     getPriorityController(
         intersectionId
@@ -73,9 +80,9 @@ export class CorridorSignalCoordinator {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // APPLY CORRIDOR
-    // --------------------------------------------------
+    // ==================================================
 
     applyCorridor(
         corridorSnapshot
@@ -88,14 +95,23 @@ export class CorridorSignalCoordinator {
             )
         ) {
 
-            return {
+            this.lastControlState = {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
-                    "INVALID_CORRIDOR"
+                    "INVALID_CORRIDOR",
+
+                activePriority:
+                    null,
+
+                decisions:
+                    []
 
             };
+
+            return this.lastControlState;
 
         }
 
@@ -106,14 +122,22 @@ export class CorridorSignalCoordinator {
             null;
 
 
+        // ==================================================
+        // PROCESS UPCOMING INTERSECTIONS
+        // ==================================================
+
         for (
             const intersection
             of corridorSnapshot.intersections
         ) {
 
+            const intersectionId =
+                intersection.intersectionId;
+
+
             const controller =
                 this.getPriorityController(
-                    intersection.intersectionId
+                    intersectionId
                 );
 
 
@@ -121,13 +145,23 @@ export class CorridorSignalCoordinator {
 
                 decisions.push({
 
-                    intersectionId:
-                        intersection.intersectionId,
+                    intersectionId,
 
-                    success: false,
+                    status:
+                        intersection.status,
 
-                    reason:
-                        "NO_PRIORITY_CONTROLLER"
+                    movement:
+                        intersection.movement ||
+                        null,
+
+                    action:
+                        "NO_PRIORITY_CONTROLLER",
+
+                    success:
+                        false,
+
+                    controllerState:
+                        null
 
                 });
 
@@ -150,9 +184,9 @@ export class CorridorSignalCoordinator {
                     intersection.movement;
 
 
-                // ----------------------------------------------
-                // ALREADY ACTIVE WITH SAME MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // ALREADY ACTIVE
+                // --------------------------------------------------
 
                 if (
                     controller.mode ===
@@ -162,18 +196,46 @@ export class CorridorSignalCoordinator {
                     requestedMovement
                 ) {
 
+                    /*
+                     * IMPORTANT:
+                     *
+                     * Do NOT just report MAINTAIN_PRIORITY.
+                     *
+                     * Actually tell the controller to
+                     * maintain the emergency green.
+                     */
+
+                    const maintainResult =
+                        typeof controller.maintainPriority ===
+                        "function"
+
+                            ? controller.maintainPriority()
+
+                            : {
+                                success:
+                                    true,
+
+                                action:
+                                    "MAINTAIN_PRIORITY"
+                            };
+
+
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
 
+                        movement:
+                            requestedMovement,
+
                         action:
+                            maintainResult.action ||
                             "MAINTAIN_PRIORITY",
 
-                        success: true,
+                        success:
+                            maintainResult.success,
 
                         controllerState:
                             controller.getState()
@@ -183,8 +245,7 @@ export class CorridorSignalCoordinator {
 
                     activePriority = {
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         movement:
                             requestedMovement
@@ -197,9 +258,9 @@ export class CorridorSignalCoordinator {
                 }
 
 
-                // ----------------------------------------------
-                // ACTIVE BUT MOVEMENT CHANGED
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // ACTIVE BUT DIFFERENT MOVEMENT
+                // --------------------------------------------------
 
                 if (
                     controller.mode ===
@@ -214,9 +275,9 @@ export class CorridorSignalCoordinator {
                 }
 
 
-                // ----------------------------------------------
-                // PREPARE NEW MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // PREPARE
+                // --------------------------------------------------
 
                 const prepareResult =
                     controller.preparePriority(
@@ -234,19 +295,25 @@ export class CorridorSignalCoordinator {
 
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
 
+                        movement:
+                            requestedMovement,
+
                         action:
                             "PREPARE_PRIORITY_FAILED",
 
-                        success: false,
+                        success:
+                            false,
 
                         reason:
-                            prepareResult.reason
+                            prepareResult.reason,
+
+                        controllerState:
+                            controller.getState()
 
                     });
 
@@ -255,9 +322,9 @@ export class CorridorSignalCoordinator {
                 }
 
 
-                // ----------------------------------------------
+                // --------------------------------------------------
                 // ACTIVATE
-                // ----------------------------------------------
+                // --------------------------------------------------
 
                 const activateResult =
                     controller.activatePriority();
@@ -265,11 +332,13 @@ export class CorridorSignalCoordinator {
 
                 decisions.push({
 
-                    intersectionId:
-                        intersection.intersectionId,
+                    intersectionId,
 
                     status:
                         intersection.status,
+
+                    movement:
+                        requestedMovement,
 
                     action:
                         "ACTIVATE_PRIORITY",
@@ -289,8 +358,7 @@ export class CorridorSignalCoordinator {
 
                     activePriority = {
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         movement:
                             requestedMovement
@@ -318,9 +386,9 @@ export class CorridorSignalCoordinator {
                     intersection.movement;
 
 
-                // ----------------------------------------------
-                // ACTIVE WITH SAME MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // ALREADY ACTIVE
+                // --------------------------------------------------
 
                 if (
                     controller.mode ===
@@ -330,32 +398,62 @@ export class CorridorSignalCoordinator {
                     requestedMovement
                 ) {
 
+                    const maintainResult =
+                        typeof controller.maintainPriority ===
+                        "function"
+
+                            ? controller.maintainPriority()
+
+                            : {
+                                success:
+                                    true,
+
+                                action:
+                                    "MAINTAIN_PRIORITY"
+                            };
+
+
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
 
+                        movement:
+                            requestedMovement,
+
                         action:
+                            maintainResult.action ||
                             "MAINTAIN_PRIORITY",
 
-                        success: true,
+                        success:
+                            maintainResult.success,
 
                         controllerState:
                             controller.getState()
 
                     });
 
+
+                    activePriority = {
+
+                        intersectionId,
+
+                        movement:
+                            requestedMovement
+
+                    };
+
+
                     continue;
 
                 }
 
 
-                // ----------------------------------------------
-                // PREPARE WITH SAME MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // ALREADY PREPARED
+                // --------------------------------------------------
 
                 if (
                     controller.mode ===
@@ -367,16 +465,19 @@ export class CorridorSignalCoordinator {
 
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
 
+                        movement:
+                            requestedMovement,
+
                         action:
                             "MAINTAIN_PREPARE",
 
-                        success: true,
+                        success:
+                            true,
 
                         controllerState:
                             controller.getState()
@@ -388,9 +489,9 @@ export class CorridorSignalCoordinator {
                 }
 
 
-                // ----------------------------------------------
-                // OLD MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
+                // REMOVE OLD PRIORITY
+                // --------------------------------------------------
 
                 if (
                     controller.mode !==
@@ -402,11 +503,11 @@ export class CorridorSignalCoordinator {
                 }
 
 
-                // ----------------------------------------------
+                // --------------------------------------------------
                 // PREPARE NEW MOVEMENT
-                // ----------------------------------------------
+                // --------------------------------------------------
 
-                const result =
+                const prepareResult =
                     controller.preparePriority(
 
                         requestedMovement,
@@ -418,17 +519,19 @@ export class CorridorSignalCoordinator {
 
                 decisions.push({
 
-                    intersectionId:
-                        intersection.intersectionId,
+                    intersectionId,
 
                     status:
                         intersection.status,
+
+                    movement:
+                        requestedMovement,
 
                     action:
                         "PREPARE_PRIORITY",
 
                     success:
-                        result.success,
+                        prepareResult.success,
 
                     controllerState:
                         controller.getState()
@@ -455,23 +558,26 @@ export class CorridorSignalCoordinator {
                     SIGNAL_PRIORITY_MODES.NORMAL
                 ) {
 
-                    const result =
+                    const releaseResult =
                         controller.releasePriority();
 
 
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
+
+                        movement:
+                            intersection.movement ||
+                            null,
 
                         action:
                             "RELEASE_PRIORITY",
 
                         success:
-                            result.success,
+                            releaseResult.success,
 
                         controllerState:
                             controller.getState()
@@ -479,20 +585,25 @@ export class CorridorSignalCoordinator {
                     });
 
                 }
+
                 else {
 
                     decisions.push({
 
-                        intersectionId:
-                            intersection.intersectionId,
+                        intersectionId,
 
                         status:
                             intersection.status,
 
+                        movement:
+                            intersection.movement ||
+                            null,
+
                         action:
                             "MAINTAIN_NORMAL",
 
-                        success: true,
+                        success:
+                            true,
 
                         controllerState:
                             controller.getState()
@@ -516,31 +627,27 @@ export class CorridorSignalCoordinator {
                 GREEN_CORRIDOR_STATUS.NORMAL
             ) {
 
-                /*
-                 * Do not automatically release a priority
-                 * controller here.
-                 *
-                 * The intersection may still be transitioning
-                 * between corridor states.
-                 */
-
                 decisions.push({
 
-                    intersectionId:
-                        intersection.intersectionId,
+                    intersectionId,
 
                     status:
                         intersection.status,
+
+                    movement:
+                        intersection.movement ||
+                        null,
 
                     action:
                         controller.mode ===
                         SIGNAL_PRIORITY_MODES.NORMAL
 
-                        ? "MAINTAIN_NORMAL"
+                            ? "MAINTAIN_NORMAL"
 
-                        : "MAINTAIN_PRIORITY_STATE",
+                            : "MAINTAIN_PRIORITY_STATE",
 
-                    success: true,
+                    success:
+                        true,
 
                     controllerState:
                         controller.getState()
@@ -552,27 +659,137 @@ export class CorridorSignalCoordinator {
         }
 
 
+        // ==================================================
+        // ACTIVE INTERSECTION
+        // ==================================================
+
         this.activeIntersection =
             activePriority;
 
 
-        return {
+        // ==================================================
+        // BUILD CONTROL SUMMARY
+        // ==================================================
 
-            success: true,
+        const priorityDecision =
+            decisions.find(
+                decision =>
 
-            activePriority:
-                activePriority,
+                    decision.action ===
+                    "ACTIVATE_PRIORITY" ||
 
-            decisions
+                    decision.action ===
+                    "MAINTAIN_PRIORITY" ||
+
+                    decision.action ===
+                    "EXTEND_PRIORITY_GREEN" ||
+
+                    decision.action ===
+                    "RESTORE_PRIORITY_GREEN"
+            );
+
+
+        const prepareDecision =
+            decisions.find(
+                decision =>
+
+                    decision.action ===
+                    "PREPARE_PRIORITY" ||
+
+                    decision.action ===
+                    "MAINTAIN_PREPARE"
+            );
+
+
+        const releaseDecision =
+            decisions.find(
+                decision =>
+
+                    decision.action ===
+                    "RELEASE_PRIORITY"
+            );
+
+
+        let controlMode =
+            "NORMAL";
+
+
+        if (
+            priorityDecision
+        ) {
+
+            controlMode =
+                "EMERGENCY_PRIORITY";
+
+        }
+
+        else if (
+            prepareDecision
+        ) {
+
+            controlMode =
+                "PREPARE";
+
+        }
+
+        else if (
+            releaseDecision
+        ) {
+
+            controlMode =
+                "RELEASE";
+
+        }
+
+
+        // ==================================================
+        // FINAL CONTROL STATE
+        // ==================================================
+
+        this.lastControlState = {
+
+            success:
+                true,
+
+            controlMode,
+
+            activePriority,
+
+            decisions,
+
+            summary: {
+
+                intersectionId:
+                    priorityDecision?.intersectionId ||
+                    prepareDecision?.intersectionId ||
+                    releaseDecision?.intersectionId ||
+                    null,
+
+                movement:
+                    priorityDecision?.movement ||
+                    prepareDecision?.movement ||
+                    releaseDecision?.movement ||
+                    null,
+
+                action:
+                    priorityDecision?.action ||
+                    prepareDecision?.action ||
+                    releaseDecision?.action ||
+                    "NO_ACTION"
+
+            }
 
         };
+
+
+        return this.lastControlState;
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // RELEASE ALL PRIORITY
-    // --------------------------------------------------
+    // ==================================================
 
     releaseAllPriority() {
 
@@ -617,14 +834,44 @@ export class CorridorSignalCoordinator {
             null;
 
 
+        this.lastControlState = {
+
+            success:
+                true,
+
+            controlMode:
+                "RELEASE",
+
+            activePriority:
+                null,
+
+            decisions:
+                released,
+
+            summary: {
+
+                intersectionId:
+                    null,
+
+                movement:
+                    null,
+
+                action:
+                    "RELEASE_ALL"
+
+            }
+
+        };
+
+
         return released;
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET STATE
-    // --------------------------------------------------
+    // ==================================================
 
     getState() {
 
@@ -655,6 +902,9 @@ export class CorridorSignalCoordinator {
 
             activeIntersection:
                 this.activeIntersection,
+
+            control:
+                this.lastControlState,
 
             controllers
 

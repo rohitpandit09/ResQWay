@@ -10,24 +10,35 @@ import {
 } from "../traffic/trafficRules.js";
 
 import {
-    getMovementDirection,
     isNorthSouthMovement,
     isEastWestMovement
 } from "./movementDirection.js";
 
 
+// ==================================================
+// SIGNAL PRIORITY MODES
+// ==================================================
+
 export const SIGNAL_PRIORITY_MODES = {
 
-    NORMAL: "NORMAL",
+    NORMAL:
+        "NORMAL",
 
-    PREPARE: "PREPARE",
+    PREPARE:
+        "PREPARE",
 
-    ACTIVE: "ACTIVE",
+    ACTIVE:
+        "ACTIVE",
 
-    RELEASE: "RELEASE"
+    RELEASE:
+        "RELEASE"
 
 };
 
+
+// ==================================================
+// SIGNAL PRIORITY CONTROLLER
+// ==================================================
 
 export class SignalPriorityController {
 
@@ -36,18 +47,23 @@ export class SignalPriorityController {
         this.signalController =
             signalController;
 
+
         this.mode =
             SIGNAL_PRIORITY_MODES.NORMAL;
 
+
         this.priorityMovement =
             null;
+
 
         this.priorityIntersection =
             signalController?.intersectionId ||
             null;
 
+
         this.targetGreenSeconds =
             null;
+
 
         this.originalPhase =
             null;
@@ -55,13 +71,15 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET CURRENT SIGNAL STATE
-    // --------------------------------------------------
+    // ==================================================
 
     getCurrentState() {
 
-        if (!this.signalController) {
+        if (
+            !this.signalController
+        ) {
 
             return SIGNAL_STATES.RED;
 
@@ -117,9 +135,9 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET PHASE FOR MOVEMENT
-    // --------------------------------------------------
+    // ==================================================
 
     getPhaseForMovement(
         movement
@@ -134,12 +152,10 @@ export class SignalPriorityController {
             return {
 
                 green:
-                    SIGNAL_PHASES
-                        .NORTH_SOUTH_GREEN,
+                    SIGNAL_PHASES.NORTH_SOUTH_GREEN,
 
                 yellow:
-                    SIGNAL_PHASES
-                        .NORTH_SOUTH_YELLOW
+                    SIGNAL_PHASES.NORTH_SOUTH_YELLOW
 
             };
 
@@ -155,12 +171,10 @@ export class SignalPriorityController {
             return {
 
                 green:
-                    SIGNAL_PHASES
-                        .EAST_WEST_GREEN,
+                    SIGNAL_PHASES.EAST_WEST_GREEN,
 
                 yellow:
-                    SIGNAL_PHASES
-                        .EAST_WEST_YELLOW
+                    SIGNAL_PHASES.EAST_WEST_YELLOW
 
             };
 
@@ -172,20 +186,23 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // PREPARE PRIORITY
-    // --------------------------------------------------
+    // ==================================================
 
     preparePriority(
         movement,
         targetGreenSeconds = 12
     ) {
 
-        if (!movement) {
+        if (
+            !movement
+        ) {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "MISSING_MOVEMENT"
@@ -201,11 +218,14 @@ export class SignalPriorityController {
             );
 
 
-        if (!phase) {
+        if (
+            !phase
+        ) {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "INVALID_MOVEMENT"
@@ -218,8 +238,10 @@ export class SignalPriorityController {
         this.mode =
             SIGNAL_PRIORITY_MODES.PREPARE;
 
+
         this.priorityMovement =
             movement;
+
 
         this.targetGreenSeconds =
             Math.max(
@@ -230,7 +252,8 @@ export class SignalPriorityController {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             mode:
                 this.mode,
@@ -249,9 +272,9 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // ACTIVATE PRIORITY
-    // --------------------------------------------------
+    // ==================================================
 
     activatePriority() {
 
@@ -261,7 +284,8 @@ export class SignalPriorityController {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "NO_PRIORITY_MOVEMENT"
@@ -277,11 +301,14 @@ export class SignalPriorityController {
             );
 
 
-        if (!phase) {
+        if (
+            !phase
+        ) {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "INVALID_PRIORITY_MOVEMENT"
@@ -290,6 +317,14 @@ export class SignalPriorityController {
 
         }
 
+
+        /*
+         * Store the phase that existed before
+         * emergency priority took control.
+         *
+         * This allows RELEASE to restore the
+         * normal signal cycle.
+         */
 
         this.originalPhase =
             this.signalController.phase;
@@ -322,13 +357,14 @@ export class SignalPriorityController {
 
 
         // --------------------------------------------------
-        // REQUIRED MOVEMENT IS NOT GREEN
+        // REQUIRED MOVEMENT NOT GREEN
         // --------------------------------------------------
 
         else {
 
             this.signalController.phase =
                 phase.green;
+
 
             this.signalController.remainingSeconds =
                 this.targetGreenSeconds;
@@ -338,7 +374,8 @@ export class SignalPriorityController {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             mode:
                 this.mode,
@@ -358,9 +395,191 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
+    // MAINTAIN ACTIVE PRIORITY
+    // ==================================================
+
+    maintainPriority() {
+
+        if (
+            this.mode !==
+            SIGNAL_PRIORITY_MODES.ACTIVE
+        ) {
+
+            return {
+
+                success:
+                    false,
+
+                reason:
+                    "PRIORITY_NOT_ACTIVE"
+
+            };
+
+        }
+
+
+        if (
+            !this.priorityMovement
+        ) {
+
+            return {
+
+                success:
+                    false,
+
+                reason:
+                    "NO_PRIORITY_MOVEMENT"
+
+            };
+
+        }
+
+
+        const phase =
+            this.getPhaseForMovement(
+                this.priorityMovement
+            );
+
+
+        if (
+            !phase
+        ) {
+
+            return {
+
+                success:
+                    false,
+
+                reason:
+                    "INVALID_PRIORITY_MOVEMENT"
+
+            };
+
+        }
+
+
+        /*
+         * IMPORTANT:
+         *
+         * The normal SignalController continues
+         * ticking every simulation second.
+         *
+         * Therefore ACTIVE priority must continuously
+         * protect the required movement.
+         */
+
+
+        // --------------------------------------------------
+        // REQUIRED PHASE LOST
+        // --------------------------------------------------
+
+        if (
+            this.signalController.phase !==
+            phase.green
+        ) {
+
+            this.signalController.phase =
+                phase.green;
+
+
+            this.signalController.remainingSeconds =
+                this.targetGreenSeconds;
+
+
+            return {
+
+                success:
+                    true,
+
+                action:
+                    "RESTORE_PRIORITY_GREEN",
+
+                movement:
+                    this.priorityMovement,
+
+                phase:
+                    this.signalController.phase,
+
+                remainingSeconds:
+                    this.signalController
+                        .remainingSeconds
+
+            };
+
+        }
+
+
+        // --------------------------------------------------
+        // GREEN STILL ACTIVE
+        // --------------------------------------------------
+
+        /*
+         * Keep at least enough time for the currently
+         * active priority window.
+         *
+         * We don't reset the full timer every tick.
+         */
+
+        if (
+            this.signalController
+                .remainingSeconds <= 0
+        ) {
+
+            this.signalController
+                .remainingSeconds =
+                this.targetGreenSeconds;
+
+
+            return {
+
+                success:
+                    true,
+
+                action:
+                    "EXTEND_PRIORITY_GREEN",
+
+                movement:
+                    this.priorityMovement,
+
+                phase:
+                    this.signalController.phase,
+
+                remainingSeconds:
+                    this.signalController
+                        .remainingSeconds
+
+            };
+
+        }
+
+
+        return {
+
+            success:
+                true,
+
+            action:
+                "MAINTAIN_PRIORITY",
+
+            movement:
+                this.priorityMovement,
+
+            phase:
+                this.signalController.phase,
+
+            remainingSeconds:
+                this.signalController
+                    .remainingSeconds
+
+        };
+
+    }
+
+
+    // ==================================================
     // RELEASE PRIORITY
-    // --------------------------------------------------
+    // ==================================================
 
     releasePriority() {
 
@@ -371,11 +590,14 @@ export class SignalPriorityController {
         this.priorityMovement =
             null;
 
+
         this.targetGreenSeconds =
             null;
 
 
-        // Return to normal cycle.
+        // --------------------------------------------------
+        // RESTORE NORMAL SIGNAL CYCLE
+        // --------------------------------------------------
 
         if (
             this.originalPhase
@@ -403,7 +625,8 @@ export class SignalPriorityController {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             mode:
                 this.mode,
@@ -420,9 +643,9 @@ export class SignalPriorityController {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE
-    // --------------------------------------------------
+    // ==================================================
 
     update() {
 
@@ -431,28 +654,65 @@ export class SignalPriorityController {
             SIGNAL_PRIORITY_MODES.ACTIVE
         ) {
 
-            return;
+            return {
+
+                success:
+                    true,
+
+                action:
+                    "NO_ACTIVE_PRIORITY"
+
+            };
 
         }
 
 
-        if (
-            this.signalController
-                .remainingSeconds <= 0
-        ) {
+        /*
+         * Keep emergency priority alive while
+         * the coordinator still considers this
+         * intersection active.
+         */
 
-            this.releasePriority();
-
-        }
+        return this.maintainPriority();
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET STATE
-    // --------------------------------------------------
+    // ==================================================
 
     getState() {
+
+        const phase =
+            this.signalController
+                ?.phase || null;
+
+
+        let movementState =
+            "NONE";
+
+
+        if (
+            phase ===
+            SIGNAL_PHASES.NORTH_SOUTH_GREEN
+        ) {
+
+            movementState =
+                "NORTH_SOUTH";
+
+        }
+
+        else if (
+            phase ===
+            SIGNAL_PHASES.EAST_WEST_GREEN
+        ) {
+
+            movementState =
+                "EAST_WEST";
+
+        }
+
 
         return {
 
@@ -468,9 +728,16 @@ export class SignalPriorityController {
             targetGreenSeconds:
                 this.targetGreenSeconds,
 
+            originalPhase:
+                this.originalPhase,
+
             signalPhase:
-                this.signalController
-                    ?.phase || null,
+                phase,
+
+            signalState:
+                this.getCurrentState(),
+
+            movementState,
 
             remainingSeconds:
                 this.signalController

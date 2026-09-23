@@ -1,23 +1,43 @@
 // Backend/src/greenCorridor/greenCorridorEngine.js
 
+
 export const GREEN_CORRIDOR_STATUS = {
-    EMERGENCY_PRIORITY: "EMERGENCY_PRIORITY",
-    PREPARE: "PREPARE",
-    NORMAL: "NORMAL",
-    RELEASE: "RELEASE"
+
+    EMERGENCY_PRIORITY:
+        "EMERGENCY_PRIORITY",
+
+    PREPARE:
+        "PREPARE",
+
+    NORMAL:
+        "NORMAL",
+
+    RELEASE:
+        "RELEASE"
+
 };
 
+
+// ==================================================
+// GREEN CORRIDOR CONFIG
+// ==================================================
 
 export const GREEN_CORRIDOR_CONFIG = {
 
     // Ambulance reaches intersection very soon.
-    EMERGENCY_PRIORITY_ETA: 8,
+    EMERGENCY_PRIORITY_ETA:
+        8,
 
     // Ambulance is approaching the intersection.
-    PREPARE_ETA: 20
+    PREPARE_ETA:
+        20
 
 };
 
+
+// ==================================================
+// GREEN CORRIDOR ENGINE
+// ==================================================
 
 export class GreenCorridorEngine {
 
@@ -34,9 +54,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET STATUS FROM ETA
-    // --------------------------------------------------
+    // ==================================================
 
     getStatusFromETA(eta) {
 
@@ -77,9 +97,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET MOVEMENT
-    // --------------------------------------------------
+    // ==================================================
 
     getMovement(item) {
 
@@ -95,9 +115,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // CREATE INTERSECTION DECISION
-    // --------------------------------------------------
+    // ==================================================
 
     createDecision(item) {
 
@@ -152,9 +172,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
-    // RECOMMENDED ACTION
-    // --------------------------------------------------
+    // ==================================================
+    // GET RECOMMENDED ACTION
+    // ==================================================
 
     getRecommendedAction(status) {
 
@@ -190,9 +210,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GENERATE CORRIDOR
-    // --------------------------------------------------
+    // ==================================================
 
     generateCorridor(etaSnapshot) {
 
@@ -223,12 +243,14 @@ export class GreenCorridorEngine {
 
 
         const intersections =
-            etaSnapshot.intersections.map(
-
-                item =>
-                    this.createDecision(item)
-
-            );
+            etaSnapshot.intersections
+                .map(
+                    item =>
+                        this.createDecision(item)
+                )
+                .filter(
+                    Boolean
+                );
 
 
         const priorityIntersection =
@@ -254,16 +276,17 @@ export class GreenCorridorEngine {
 
             priorityIntersection:
                 priorityIntersection
-                    ?.intersectionId || null
+                    ?.intersectionId ||
+                null
 
         };
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET PRIORITY INTERSECTION
-    // --------------------------------------------------
+    // ==================================================
 
     getPriorityIntersection(
         corridor
@@ -293,9 +316,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET PREPARE INTERSECTIONS
-    // --------------------------------------------------
+    // ==================================================
 
     getPrepareIntersections(
         corridor
@@ -324,9 +347,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE PASSED INTERSECTIONS
-    // --------------------------------------------------
+    // ==================================================
 
     markPassedIntersections(
         corridor,
@@ -338,6 +361,15 @@ export class GreenCorridorEngine {
             !Array.isArray(
                 corridor.intersections
             )
+        ) {
+
+            return corridor;
+
+        }
+
+
+        if (
+            !currentNode
         ) {
 
             return corridor;
@@ -364,13 +396,31 @@ export class GreenCorridorEngine {
         }
 
 
+        /*
+         * IMPORTANT
+         *
+         * currentNode is the intersection that the
+         * ambulance has already reached.
+         *
+         * Therefore:
+         *
+         * everything BEFORE currentIndex
+         *        +
+         * currentIndex itself
+         *
+         * has already been crossed.
+         *
+         * Release priority for all of them.
+         */
+
         for (
             let i = 0;
-            i < currentIndex;
+            i <= currentIndex;
             i++
         ) {
 
-            corridor.intersections[i].status =
+            corridor.intersections[i]
+                .status =
                 GREEN_CORRIDOR_STATUS.RELEASE;
 
 
@@ -388,9 +438,9 @@ export class GreenCorridorEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // SNAPSHOT
-    // --------------------------------------------------
+    // ==================================================
 
     getSnapshot(
         etaSnapshot,
@@ -431,7 +481,8 @@ export class GreenCorridorEngine {
 
             priorityIntersection:
                 priorityIntersection
-                    ?.intersectionId || null,
+                    ?.intersectionId ||
+                null,
 
             prepareIntersections:
                 prepareIntersections.map(

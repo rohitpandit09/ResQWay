@@ -1,11 +1,23 @@
 // Backend/src/simulation/simulationEngine.js
 
+
 export const SIMULATION_STATUS = {
-    STOPPED: "STOPPED",
-    RUNNING: "RUNNING",
-    PAUSED: "PAUSED"
+
+    STOPPED:
+        "STOPPED",
+
+    RUNNING:
+        "RUNNING",
+
+    PAUSED:
+        "PAUSED"
+
 };
 
+
+// ==================================================
+// SIMULATION ENGINE
+// ==================================================
 
 export class SimulationEngine {
 
@@ -14,20 +26,26 @@ export class SimulationEngine {
         this.vehicleEngine =
             options.vehicleEngine || null;
 
+
         this.ambulanceEngine =
             options.ambulanceEngine || null;
+
 
         this.signals =
             options.signals || new Map();
 
+
         this.etaEngine =
             options.etaEngine || null;
+
 
         this.effectiveETAEngine =
             options.effectiveETAEngine || null;
 
+
         this.greenCorridorEngine =
             options.greenCorridorEngine || null;
+
 
         this.corridorSignalCoordinator =
             options.corridorSignalCoordinator || null;
@@ -37,15 +55,21 @@ export class SimulationEngine {
         // CLOCK
         // --------------------------------------------------
 
-        this.simulationTime = 0;
+        this.simulationTime =
+            0;
 
-        this.tickCount = 0;
+
+        this.tickCount =
+            0;
+
 
         this.status =
             SIMULATION_STATUS.STOPPED;
 
+
         this.timeScale =
             options.timeScale || 1;
+
 
         this.defaultDeltaTime =
             options.defaultDeltaTime || 1;
@@ -66,18 +90,36 @@ export class SimulationEngine {
         this.lastETA =
             null;
 
+
         this.lastGreenCorridor =
             null;
 
+
         this.lastSignalControl =
+            null;
+
+
+        // --------------------------------------------------
+        // DEBUG / TELEMETRY
+        // --------------------------------------------------
+
+        this.lastCorridorDebugKey =
+            null;
+
+
+        this.lastSignalDebugKey =
+            null;
+
+
+        this.lastAmbulanceDebugKey =
             null;
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // START
-    // --------------------------------------------------
+    // ==================================================
 
     start() {
 
@@ -88,7 +130,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "SIMULATION_ALREADY_RUNNING"
@@ -104,7 +147,8 @@ export class SimulationEngine {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             status:
                 this.status,
@@ -117,9 +161,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // PAUSE
-    // --------------------------------------------------
+    // ==================================================
 
     pause() {
 
@@ -130,7 +174,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "SIMULATION_NOT_RUNNING"
@@ -146,7 +191,8 @@ export class SimulationEngine {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             status:
                 this.status
@@ -156,9 +202,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // RESUME
-    // --------------------------------------------------
+    // ==================================================
 
     resume() {
 
@@ -169,7 +215,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "SIMULATION_NOT_PAUSED"
@@ -185,7 +232,8 @@ export class SimulationEngine {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             status:
                 this.status
@@ -195,9 +243,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // STOP
-    // --------------------------------------------------
+    // ==================================================
 
     stop() {
 
@@ -207,7 +255,8 @@ export class SimulationEngine {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             status:
                 this.status,
@@ -220,9 +269,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // SET ACTIVE AMBULANCE
-    // --------------------------------------------------
+    // ==================================================
 
     setActiveAmbulance(
         ambulanceId
@@ -234,7 +283,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "NO_AMBULANCE_ENGINE"
@@ -252,7 +302,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "AMBULANCE_LOOKUP_NOT_SUPPORTED"
@@ -273,7 +324,8 @@ export class SimulationEngine {
 
             return {
 
-                success: false,
+                success:
+                    false,
 
                 reason:
                     "AMBULANCE_NOT_FOUND"
@@ -289,7 +341,8 @@ export class SimulationEngine {
 
         return {
 
-            success: true,
+            success:
+                true,
 
             ambulanceId
 
@@ -298,9 +351,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET ACTIVE AMBULANCE
-    // --------------------------------------------------
+    // ==================================================
 
     getActiveAmbulance() {
 
@@ -313,9 +366,9 @@ export class SimulationEngine {
         }
 
 
-        // ----------------------------------------------
+        // --------------------------------------------------
         // Explicit ambulance ID
-        // ----------------------------------------------
+        // --------------------------------------------------
 
         if (
             this.activeAmbulanceId &&
@@ -332,9 +385,9 @@ export class SimulationEngine {
         }
 
 
-        // ----------------------------------------------
+        // --------------------------------------------------
         // Automatically use first ambulance
-        // ----------------------------------------------
+        // --------------------------------------------------
 
         if (
             this.ambulanceEngine
@@ -360,9 +413,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE SIGNALS
-    // --------------------------------------------------
+    // ==================================================
 
     updateSignals(
         deltaTime
@@ -390,9 +443,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE TRAFFIC
-    // --------------------------------------------------
+    // ==================================================
 
     updateTraffic(
         deltaTime
@@ -414,9 +467,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE AMBULANCE
-    // --------------------------------------------------
+    // ==================================================
 
     updateAmbulance(
         deltaTime
@@ -438,9 +491,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // CALCULATE ETA
-    // --------------------------------------------------
+    // ==================================================
 
     calculateETA() {
 
@@ -472,10 +525,9 @@ export class SimulationEngine {
         }
 
 
-        /*
-         * Only calculate ETA while the ambulance
-         * has an actual route to follow.
-         */
+        // --------------------------------------------------
+        // Only calculate ETA while ambulance has route
+        // --------------------------------------------------
 
         if (
             !Array.isArray(
@@ -504,9 +556,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // UPDATE GREEN CORRIDOR
-    // --------------------------------------------------
+    // ==================================================
 
     updateGreenCorridor() {
 
@@ -560,9 +612,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // APPLY SIGNAL PRIORITY
-    // --------------------------------------------------
+    // ==================================================
 
     applySignalPriority() {
 
@@ -591,9 +643,421 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
+    // AMBULANCE TELEMETRY
+    // ==================================================
+
+    logAmbulanceTelemetry(
+        ambulance
+    ) {
+
+        if (
+            !ambulance
+        ) {
+
+            return;
+
+        }
+
+
+        if (
+            !ambulance.route ||
+            ambulance.route.length < 2
+        ) {
+
+            return;
+
+        }
+
+
+        const currentNode =
+            ambulance.currentNode ||
+            "-";
+
+
+        const nextNode =
+            ambulance.nextNode ||
+            "-";
+
+
+        const ambulanceKey =
+            [
+
+                ambulance.state,
+
+                currentNode,
+
+                nextNode,
+
+                Math.floor(
+                    ambulance.position || 0
+                )
+
+            ].join("|");
+
+
+        if (
+            ambulanceKey !==
+            this.lastAmbulanceDebugKey
+        ) {
+
+            this.lastAmbulanceDebugKey =
+                ambulanceKey;
+
+
+            console.log(
+
+                `🚑 [AMBULANCE] ` +
+
+                `state=${ambulance.state} | ` +
+
+                `current=${currentNode} | ` +
+
+                `next=${nextNode} | ` +
+
+                `speed=${Number(
+                    ambulance.speed || 0
+                ).toFixed(1)}`
+
+            );
+
+        }
+
+    }
+
+
+    // ==================================================
+    // ETA TELEMETRY
+    // ==================================================
+
+    logETATelemetry() {
+
+        if (
+            !this.lastETA
+        ) {
+
+            return;
+
+        }
+
+
+        const totalETA =
+            this.lastETA
+                .totalEffectiveETA;
+
+
+        const intersections =
+            this.lastETA.intersections ||
+            [];
+
+
+        console.log(
+
+            `⏱️ [ETA] ` +
+
+            `total=${Number(
+                totalETA || 0
+            ).toFixed(1)}s`
+
+        );
+
+
+        if (
+            intersections.length > 0
+        ) {
+
+            const etaText =
+                intersections
+                    .map(
+                        intersection => {
+
+                            const id =
+                                intersection.intersectionId ||
+                                intersection.node ||
+                                intersection.id ||
+                                "?";
+
+
+                            const eta =
+                                intersection.effectiveETA ??
+                                intersection.eta ??
+                                intersection.travelETA ??
+                                0;
+
+
+                            return `${id}=${Number(
+                                eta
+                            ).toFixed(1)}s`;
+
+                        }
+                    )
+                    .join(" | ");
+
+
+            console.log(
+                `📍 [UPCOMING ETA] ${etaText}`
+            );
+
+        }
+
+    }
+
+
+    // ==================================================
+    // GREEN CORRIDOR TELEMETRY
+    // ==================================================
+
+    logGreenCorridorTelemetry() {
+
+        if (
+            !this.lastGreenCorridor
+        ) {
+
+            return;
+
+        }
+
+
+        const corridor =
+            this.lastGreenCorridor.intersections ||
+            this.lastGreenCorridor.corridor ||
+            [];
+
+
+        if (
+            !Array.isArray(corridor) ||
+            corridor.length === 0
+        ) {
+
+            return;
+
+        }
+
+
+        const corridorText =
+            corridor
+                .map(
+                    item => {
+
+                        const id =
+                            item.intersectionId ||
+                            item.node ||
+                            item.id ||
+                            "?";
+
+
+                        const status =
+                            item.status ||
+                            item.priority ||
+                            "NORMAL";
+
+
+                        const eta =
+                            item.eta ??
+                            item.effectiveETA;
+
+
+                        if (
+                            Number.isFinite(
+                                eta
+                            )
+                        ) {
+
+                            return (
+
+                                `${id}=${status}` +
+
+                                `(${Number(
+                                    eta
+                                ).toFixed(1)}s)`
+
+                            );
+
+                        }
+
+
+                        return (
+                            `${id}=${status}`
+                        );
+
+                    }
+                )
+                .join(" → ");
+
+
+        const corridorKey =
+            corridorText;
+
+
+        if (
+            corridorKey !==
+            this.lastCorridorDebugKey
+        ) {
+
+            this.lastCorridorDebugKey =
+                corridorKey;
+
+
+            console.log(
+                `🟢 [GREEN CORRIDOR] ${corridorText}`
+            );
+
+        }
+
+    }
+
+
+    // ==================================================
+    // SIGNAL CONTROL TELEMETRY
+    // ==================================================
+
+    logSignalControlTelemetry() {
+
+        if (
+            !this.lastSignalControl
+        ) {
+
+            return;
+
+        }
+
+
+        /*
+         * CorridorSignalCoordinator returns:
+         *
+         * {
+         *     controlMode,
+         *     activePriority,
+         *     decisions,
+         *     summary
+         * }
+         *
+         * Therefore we MUST read "decisions".
+         */
+
+        const decisions =
+            Array.isArray(
+                this.lastSignalControl.decisions
+            )
+
+                ? this.lastSignalControl.decisions
+
+                : [];
+
+
+        if (
+            decisions.length === 0
+        ) {
+
+            return;
+
+        }
+
+
+        const signalText =
+            decisions
+                .map(
+                    decision => {
+
+                        const id =
+                            decision.intersectionId ||
+                            "?";
+
+
+                        const action =
+                            decision.action ||
+                            "NO_ACTION";
+
+
+                        const movement =
+                            decision.movement ||
+                            decision.controllerState
+                                ?.priorityMovement ||
+                            "-";
+
+
+                        const controllerState =
+                            decision.controllerState ||
+                            {};
+
+
+                        const phase =
+                            controllerState.signalPhase ||
+                            "-";
+
+
+                        const remaining =
+                            controllerState.remainingSeconds;
+
+
+                        const remainingText =
+                            Number.isFinite(
+                                Number(
+                                    remaining
+                                )
+                            )
+
+                                ? ` | ${Number(
+                                    remaining
+                                ).toFixed(1)}s`
+
+                                : "";
+
+
+                        return (
+
+                            `${id}=${action}` +
+
+                            `[${movement}]` +
+
+                            ` phase=${phase}` +
+
+                            remainingText
+
+                        );
+
+                    }
+                )
+                .join(" | ");
+
+
+        const controlMode =
+            this.lastSignalControl
+                .controlMode ||
+            "NORMAL";
+
+
+        const signalKey =
+            `${controlMode}|${signalText}`;
+
+
+        if (
+            signalKey !==
+            this.lastSignalDebugKey
+        ) {
+
+            this.lastSignalDebugKey =
+                signalKey;
+
+
+            console.log(
+
+                `🚦 [SIGNAL CONTROL] ` +
+
+                `${controlMode} | ` +
+
+                signalText
+
+            );
+
+        }
+
+    }
+
+
+    // ==================================================
     // UPDATE ONE TICK
-    // --------------------------------------------------
+    // ==================================================
 
     update(
         deltaTime =
@@ -661,6 +1125,7 @@ export class SimulationEngine {
         this.simulationTime +=
             scaledDeltaTime;
 
+
         this.tickCount++;
 
 
@@ -685,14 +1150,34 @@ export class SimulationEngine {
         this.applySignalPriority();
 
 
+        // ----------------------------------------------
+        // 8. TELEMETRY
+        // ----------------------------------------------
+
+        const ambulance =
+            this.getActiveAmbulance();
+
+
+        this.logAmbulanceTelemetry(
+            ambulance
+        );
+
+
+        this.logETATelemetry();
+
+        this.logGreenCorridorTelemetry();
+
+        this.logSignalControlTelemetry();
+
+
         return this.getSnapshot();
 
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET VEHICLE STATES
-    // --------------------------------------------------
+    // ==================================================
 
     getVehicleStates() {
 
@@ -722,9 +1207,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET AMBULANCE STATE
-    // --------------------------------------------------
+    // ==================================================
 
     getAmbulanceState() {
 
@@ -767,9 +1252,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET ALL AMBULANCE STATES
-    // --------------------------------------------------
+    // ==================================================
 
     getAmbulanceStates() {
 
@@ -799,9 +1284,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET SIGNAL STATES
-    // --------------------------------------------------
+    // ==================================================
 
     getSignalStates() {
 
@@ -833,9 +1318,9 @@ export class SimulationEngine {
     }
 
 
-    // --------------------------------------------------
+    // ==================================================
     // GET SNAPSHOT
-    // --------------------------------------------------
+    // ==================================================
 
     getSnapshot() {
 
